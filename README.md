@@ -1,4 +1,5 @@
-![Uploading image.png…]()
+![Uploading 8ec0e6225ad10b616db7f0fbd7c51b92.png…]()
+
 # Map of Us
 
 Map of Us 是一个本地优先的个人情侣记忆地图应用。它使用 Next.js 16 App Router、React 19、Tailwind 4 和 Electron，可以在浏览器里开发，也可以打包成桌面应用。
