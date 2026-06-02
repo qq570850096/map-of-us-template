@@ -9,7 +9,7 @@ import {
   writeJsonValue,
 } from "@/lib/server/supabase";
 import { isLocalPrivacyRequest } from "@/lib/localPrivacy";
-import { getMissingAuthEnv, hasSiteSession, requireAdminSession } from "@/lib/server/auth";
+import { getMissingAuthEnv, requireAdminSession } from "@/lib/server/auth";
 import { getPrivateDataFilePath } from "@/lib/server/dataDir";
 
 export const dynamic = "force-dynamic";
@@ -142,7 +142,11 @@ function parseSlotPayload(payload: unknown) {
 }
 
 export async function GET(request: NextRequest) {
-  if (getMissingAuthEnv().length > 0 || !hasSiteSession(request)) {
+  // These 9 photos are placeholders shown on the pre-login unlock screen, so
+  // they must be readable without a site session. Otherwise a user's custom
+  // photos only appear after logging in (e.g. on the settings page) and the
+  // login screen keeps showing the defaults.
+  if (getMissingAuthEnv().length > 0) {
     return NextResponse.json({ photos: {}, texts: {} });
   }
 
