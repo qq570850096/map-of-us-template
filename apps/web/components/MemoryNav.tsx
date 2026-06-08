@@ -6,22 +6,22 @@ import {
   ArrowLeft,
   Archive,
   BookOpen,
-  Bot,
   CalendarDays,
   Heart,
   Map as MapIcon,
+  Route,
   Settings,
   Star,
 } from "lucide-react";
 
 const githubUrl = "https://github.com/qq570850096/map-of-us-template";
 
-export type MemoryNavKey = "map" | "memories" | "ai" | "favorites" | "anniversaries" | "capsule" | "settings";
+export type MemoryNavKey = "map" | "memories" | "trips" | "favorites" | "anniversaries" | "capsule" | "settings";
 
 const navItems = [
   { key: "map", label: "地图", icon: MapIcon, href: "/map" },
   { key: "memories", label: "回忆记录", icon: BookOpen, href: "/memories" },
-  { key: "ai", label: "AI 助手", icon: Bot, href: "/ai" },
+  { key: "trips", label: "旅行攻略", icon: Route, href: "/trips" },
   { key: "favorites", label: "地点收藏", icon: Heart, href: "/favorites" },
   { key: "anniversaries", label: "纪念日", icon: CalendarDays, href: "/anniversaries" },
   { key: "capsule", label: "时光宝盒", icon: Archive, href: "/time-capsule" },

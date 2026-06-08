@@ -5,12 +5,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ImagePlus,
+  Loader2,
   Maximize2,
   Minimize2,
   Minus,
   Pencil,
   Plus,
   RotateCcw,
+  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
@@ -1096,6 +1098,9 @@ function MemoryCard({
   const [text, setText] = useState("");
   const [photoDrafts, setPhotoDrafts] = useState<PhotoDraft[]>([]);
   const [photoError, setPhotoError] = useState("");
+  const [polishSuggestion, setPolishSuggestion] = useState("");
+  const [polishError, setPolishError] = useState("");
+  const [polishing, setPolishing] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [coverError, setCoverError] = useState("");
   const [settingCover, setSettingCover] = useState("");
@@ -1135,6 +1140,9 @@ function MemoryCard({
     setDate("");
     setText("");
     setPhotoError("");
+    setPolishSuggestion("");
+    setPolishError("");
+    setPolishing(false);
     setSaveError("");
     setCoverError("");
     setDeleteError("");
@@ -1157,6 +1165,9 @@ function MemoryCard({
     setDate(record.date);
     setText(record.text);
     setPhotoError("");
+    setPolishSuggestion("");
+    setPolishError("");
+    setPolishing(false);
     setSaveError("");
     setCoverError("");
     setDeleteError("");
@@ -1246,6 +1257,39 @@ function MemoryCard({
       setPhotoError("图片读取失败，请重新选择");
     } finally {
       if (mountedRef.current && photoReadTokenRef.current === readToken) setIsReadingPhoto(false);
+    }
+  };
+
+  const handlePolishMemory = async () => {
+    if (!isAdmin) {
+      setPolishError("请先进入管理员模式");
+      return;
+    }
+    if (!trimmedText || polishing) return;
+
+    setPolishing(true);
+    setPolishError("");
+
+    try {
+      const response = await apiFetch("/ai/memory-polish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceText: trimmedText,
+          cityId: city.id,
+          city: city.name,
+          date: normalizedDate ?? trimmedDate,
+        }),
+      });
+      if (!response.ok) throw new Error("Polish failed");
+      const data = (await response.json()) as { polishedText?: unknown };
+      const nextText = typeof data.polishedText === "string" ? data.polishedText.trim().slice(0, memoryTextMaxLength) : "";
+      if (!nextText) throw new Error("Empty polish result");
+      setPolishSuggestion(nextText);
+    } catch {
+      setPolishError("润色失败，请稍后再试");
+    } finally {
+      if (mountedRef.current) setPolishing(false);
     }
   };
 
@@ -1716,12 +1760,65 @@ function MemoryCard({
                   className="mt-1.5 w-full resize-none rounded-[6px] border border-[#D8DDD8] bg-[#FAFBF7] px-3 py-2 text-sm leading-6 text-[#5A6670] placeholder:text-[#5A6670]/40 outline-none transition focus:border-[#E8B8C2]"
                   rows={3}
                   value={text}
-                  onChange={(event) => setText(event.target.value)}
+                  onChange={(event) => {
+                    setText(event.target.value);
+                    setPolishSuggestion("");
+                    setPolishError("");
+                  }}
                   placeholder="写下这一刻……"
                   maxLength={memoryTextMaxLength}
                   disabled={!isAdmin}
                 />
               </label>
+
+              <div className="space-y-2">
+                <button
+                  className="inline-flex min-h-9 items-center gap-2 rounded-[6px] border border-[#F5DCE0] bg-[#F5DCE0]/42 px-3 text-xs font-semibold text-[#E8B8C2] transition hover:bg-[#F5DCE0]/70 disabled:cursor-not-allowed disabled:opacity-45"
+                  type="button"
+                  onClick={handlePolishMemory}
+                  disabled={!isAdmin || !trimmedText || polishing}
+                >
+                  {polishing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  {polishing ? "润色中" : "AI 润色"}
+                </button>
+                {polishSuggestion && (
+                  <div className="rounded-[7px] border border-[#F5DCE0]/76 bg-white/54 p-3">
+                    <p className="text-xs leading-5 text-[#5A6670]/72">{polishSuggestion}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        className="rounded-[6px] bg-[#F5DCE0] px-3 py-1.5 text-xs font-semibold text-[#E8B8C2] transition hover:bg-[#E8B8C2] hover:text-[#FAFBF7]"
+                        type="button"
+                        onClick={() => {
+                          setText(polishSuggestion.slice(0, memoryTextMaxLength));
+                          setPolishSuggestion("");
+                          setPolishError("");
+                        }}
+                      >
+                        采用
+                      </button>
+                      <button
+                        className="rounded-[6px] border border-[#D8DDD8] px-3 py-1.5 text-xs font-semibold text-[#5A6670]/66 transition hover:border-[#A8C8DC] hover:text-[#A8C8DC]"
+                        type="button"
+                        onClick={handlePolishMemory}
+                        disabled={polishing}
+                      >
+                        重新润色
+                      </button>
+                      <button
+                        className="rounded-[6px] px-3 py-1.5 text-xs font-semibold text-[#5A6670]/52 transition hover:bg-[#D8DDD8]/28"
+                        type="button"
+                        onClick={() => {
+                          setPolishSuggestion("");
+                          setPolishError("");
+                        }}
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {polishError && <p className="text-xs text-[#E8B8C2]">{polishError}</p>}
+              </div>
 
               <div>
                 <span className="text-xs font-medium text-[#5A6670]/70">照片</span>

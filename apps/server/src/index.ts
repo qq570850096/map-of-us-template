@@ -9,6 +9,7 @@ import { registerBackupRoutes } from "./routes/backup.js";
 import { registerAiRoutes } from "./routes/ai.js";
 import { registerMemoryRoutes } from "./routes/memories.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
+import { registerTripGuideRoutes } from "./routes/tripGuides.js";
 
 const app = fastify({ logger: true });
 
@@ -26,6 +27,7 @@ await registerMemoryRoutes(app);
 await registerAssetRoutes(app);
 await registerSettingsRoutes(app);
 await registerBackupRoutes(app);
+await registerTripGuideRoutes(app);
 await registerAiRoutes(app);
 
 try {

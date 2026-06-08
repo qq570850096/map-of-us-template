@@ -42,6 +42,18 @@ enum DraftKind {
   trip_plan
 }
 
+enum AiJobType {
+  trip_plan
+}
+
+enum AiJobStatus {
+  queued
+  running
+  needs_confirmation
+  completed
+  failed
+}
+
 model User {
   id           String       @id @default(cuid())
   username     String       @unique
@@ -71,6 +83,7 @@ model Space {
   auxiliaryItems  AuxiliaryItem[]
   aiConversations AiConversation[]
   aiDrafts        AiDraft[]
+  aiJobs          AiJob[]
   tripPlans       TripPlan[]
 }
 
@@ -201,6 +214,22 @@ model AiDraft {
   user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([spaceId, kind, status])
+}
+
+model AiJob {
+  id        String      @id @default(cuid())
+  spaceId   String
+  userId    String?
+  type      AiJobType
+  status    AiJobStatus @default(queued)
+  input     Json
+  result    Json?
+  error     String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  space     Space       @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@index([spaceId, type, status])
 }
 
 model TripPlan {
