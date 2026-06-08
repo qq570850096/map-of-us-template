@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mapofus
+      POSTGRES_USER: mapofus
+      POSTGRES_PASSWORD: mapofus
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mapofus -d mapofus"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: mapofus
+      MINIO_ROOT_PASSWORD: mapofus-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 mapofus mapofus-secret &&
+      mc mb -p local/map-of-us || true &&
+      mc anonymous set download local/map-of-us
+      "
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 4002
+      DATABASE_URL: postgresql://mapofus:mapofus@postgres:5432/mapofus?schema=public
+      JWT_SECRET: change-me-in-production-to-a-long-random-secret
+      WEB_ORIGIN: http://localhost:3002
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: auto
+      S3_ACCESS_KEY_ID: mapofus
+      S3_SECRET_ACCESS_KEY: mapofus-secret
+      S3_BUCKET: map-of-us
+      S3_PUBLIC_BASE_URL: http://localhost:9000/map-of-us
+      ASTRBOT_BASE_URL: ${ASTRBOT_BASE_URL:-}
+      ASTRBOT_API_KEY: ${ASTRBOT_API_KEY:-}
+    ports:
+      - "4002:4002"
+
+volumes:
+  postgres-data:
+  minio-data:

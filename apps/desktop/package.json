@@ -1,0 +1,49 @@
+{
+  "name": "@map-of-us/desktop",
+  "version": "0.2.0",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "desktop": "electron electron/main.js",
+    "prepare:web": "npm run build -w @map-of-us/web",
+    "dist:dir": "npm run prepare:web && electron-builder --dir",
+    "dist:win": "npm run prepare:web && electron-builder --win nsis --x64"
+  },
+  "dependencies": {
+    "electron": "^42.3.0"
+  },
+  "devDependencies": {
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "com.mapofus.desktop",
+    "productName": "Map of Us",
+    "directories": {
+      "output": "dist"
+    },
+    "asar": false,
+    "npmRebuild": false,
+    "files": [
+      "electron/**/*",
+      "build/**/*",
+      {
+        "from": "../web/out",
+        "to": "web",
+        "filter": ["**/*"]
+      },
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.lifestyle",
+      "target": ["dmg"]
+    },
+    "win": {
+      "target": ["nsis"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

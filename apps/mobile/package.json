@@ -1,0 +1,20 @@
+{
+  "name": "@map-of-us/mobile",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync": "npm run build -w @map-of-us/web && capacitor sync",
+    "android:sync": "npm run build -w @map-of-us/web && capacitor sync android",
+    "android:build": "npm run android:sync && cd android && gradlew.bat assembleDebug",
+    "android": "npm run build -w @map-of-us/web && capacitor run android",
+    "ios": "npm run build -w @map-of-us/web && capacitor run ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/cli": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/ios": "^8.0.0"
+  },
+  "devDependencies": {}
+}
