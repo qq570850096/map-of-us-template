@@ -108,6 +108,8 @@ export const tripPlanDraftSchema = z.object({
   id: z.string(),
   status: z.enum(draftStatuses),
   title: z.string(),
+  origin: z.string().optional(),
+  destination: z.string().optional(),
   destinationCityIds: z.array(z.string()).default([]),
   startDate: z.string().optional(),
   endDate: z.string().optional(),

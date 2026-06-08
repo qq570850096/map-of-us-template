@@ -171,13 +171,13 @@ export default function MemoryArchive() {
 
   return (
     <MemoryPageShell active="memories">
-          <header className="flex flex-wrap items-start justify-between gap-5">
+          <header className="flex flex-wrap items-start justify-between gap-4 sm:gap-5">
             <div>
               <div className="flex items-center gap-3">
-                <Star className="h-8 w-8 fill-[#F5DCE0] text-[#E8B8C2]" />
-                <h1 className="text-[34px] font-semibold leading-tight text-[#5A6670]">回忆记录</h1>
+                <Star className="h-6 w-6 fill-[#F5DCE0] text-[#E8B8C2] sm:h-8 sm:w-8" />
+                <h1 className="text-2xl font-semibold leading-tight text-[#5A6670] sm:text-[34px]">回忆记录</h1>
               </div>
-              <p className="mt-2 text-sm font-medium text-[#5A6670]/58">
+              <p className="mt-2 hidden text-sm font-medium text-[#5A6670]/58 sm:block">
                 {view === "city" ? "按城市整理我们的足迹" : "按时间从新到旧排列"}
               </p>
             </div>
@@ -225,7 +225,7 @@ export default function MemoryArchive() {
               </div>
             </div>
           ) : view === "city" ? (
-            <div className="mt-10 space-y-9">
+            <div className="mt-6 space-y-6 sm:mt-10 sm:space-y-9">
               {cityGroups.map((group) => {
                 const expanded = expandedCities.has(group.cityId);
                 const visibleMemories = expanded ? group.memories : group.memories.slice(0, 3);
@@ -261,7 +261,7 @@ export default function MemoryArchive() {
               })}
             </div>
           ) : (
-            <div className="relative mt-10 space-y-8 pl-9">
+            <div className="relative mt-6 space-y-6 pl-9 sm:mt-10 sm:space-y-8">
               <div className="absolute bottom-0 left-3 top-0 w-px bg-[#E8B8C2]/58" aria-hidden="true" />
               {timelineGroups.map((group) => (
                 <section key={group.label} className="relative">

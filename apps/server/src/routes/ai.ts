@@ -106,20 +106,30 @@ export async function registerAiRoutes(app: FastifyInstance) {
   app.post("/ai/trip-plans", { preHandler: requireAuth }, async (request, reply) => {
     const auth = (request as AuthenticatedRequest).auth;
     const payload = request.body as {
+      origin?: unknown;
       destination?: unknown;
       startDate?: unknown;
       endDate?: unknown;
       preferences?: unknown;
     } | null;
-    if (!payload || typeof payload.destination !== "string" || !payload.destination.trim()) {
+    if (
+      !payload ||
+      typeof payload.origin !== "string" ||
+      !payload.origin.trim() ||
+      typeof payload.destination !== "string" ||
+      !payload.destination.trim()
+    ) {
       return reply.code(400).send({ error: "Invalid trip plan payload" });
     }
 
+    const origin = payload.origin.trim();
+    const destination = payload.destination.trim();
     const prompt = [
       "你是 Map of Us 的情侣旅行规划助手，可以调用 AstrBot 已配置的高德地图、机票查询和 12306 MCP 能力。",
-      "请基于目的地生成 JSON，不要输出解释。",
-      "字段: title, destinationCityIds, summary, checkpoints, transportNotes。",
-      `目的地: ${payload.destination}`,
+      "请基于出发地、目的地和偏好生成 JSON，不要输出解释。",
+      "字段: title, origin, destination, destinationCityIds, summary, checkpoints, transportNotes。",
+      `出发地: ${origin}`,
+      `目的地: ${destination}`,
       typeof payload.startDate === "string" ? `开始日期: ${payload.startDate}` : "",
       typeof payload.endDate === "string" ? `结束日期: ${payload.endDate}` : "",
       typeof payload.preferences === "string" ? `偏好: ${payload.preferences}` : "",
@@ -131,7 +141,9 @@ export async function registerAiRoutes(app: FastifyInstance) {
       message: prompt,
     });
     const json = extractJsonObject(raw) ?? {
-      title: `${payload.destination}旅行计划`,
+      title: `${origin}到${destination}旅行计划`,
+      origin,
+      destination,
       destinationCityIds: [],
       summary: raw || "AI 暂未返回结构化计划，请在草稿中继续编辑。",
       checkpoints: [],
@@ -145,7 +157,9 @@ export async function registerAiRoutes(app: FastifyInstance) {
         kind: "trip_plan",
         payload: {
           status: "draft",
-          title: typeof json.title === "string" ? json.title : `${payload.destination}旅行计划`,
+          title: typeof json.title === "string" ? json.title : `${origin}到${destination}旅行计划`,
+          origin: typeof json.origin === "string" ? json.origin : origin,
+          destination: typeof json.destination === "string" ? json.destination : destination,
           destinationCityIds: Array.isArray(json.destinationCityIds)
             ? json.destinationCityIds.filter((item): item is string => typeof item === "string")
             : [],

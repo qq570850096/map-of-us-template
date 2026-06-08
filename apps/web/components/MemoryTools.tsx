@@ -318,21 +318,21 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
 
   return (
     <MemoryPageShell active={config.active}>
-      <header className="flex flex-wrap items-start justify-between gap-5">
+      <header className="flex flex-wrap items-start justify-between gap-4 sm:gap-5">
         <div>
           <div className="flex items-center gap-3">
-            <Icon className="h-8 w-8 fill-[#F5DCE0] text-[#E8B8C2]" />
-            <h1 className="text-[34px] font-semibold leading-tight text-[#5A6670]">{config.title}</h1>
+            <Icon className="h-6 w-6 fill-[#F5DCE0] text-[#E8B8C2] sm:h-8 sm:w-8" />
+            <h1 className="text-2xl font-semibold leading-tight text-[#5A6670] sm:text-[34px]">{config.title}</h1>
           </div>
-          <p className="mt-2 text-sm font-medium text-[#5A6670]/58">{config.subtitle}</p>
+          <p className="mt-2 hidden text-sm font-medium text-[#5A6670]/58 sm:block">{config.subtitle}</p>
         </div>
         <div className="rounded-[8px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/72 px-4 py-2 text-sm font-semibold text-[#5A6670]/62 shadow-[0_8px_24px_rgba(90,102,112,0.08)] backdrop-blur">
           {items.length} 条
         </div>
       </header>
 
-      <section className="mt-10 grid gap-5 lg:grid-cols-[340px_1fr]">
-        <div className="h-fit rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-5 shadow-[0_12px_28px_rgba(90,102,112,0.06)] backdrop-blur">
+      <section className="mt-6 grid gap-4 sm:mt-10 sm:gap-5 lg:grid-cols-[340px_1fr]">
+        <div className="h-fit rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] backdrop-blur sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-[#5A6670]">{editingId ? "编辑" : "新增"}</p>
             {!isAdmin && <span className="text-xs font-semibold text-[#5A6670]/42">管理员锁定</span>}
@@ -404,7 +404,7 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
             return (
               <article
                 key={item.id}
-                className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-5 shadow-[0_12px_28px_rgba(90,102,112,0.06)] backdrop-blur"
+                className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] backdrop-blur sm:p-5"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -824,14 +824,14 @@ export function SettingsPage() {
     <MemoryPageShell active="settings">
       <header>
         <div className="flex items-center gap-3">
-          <Settings className="h-8 w-8 text-[#A8C8DC]" />
-          <h1 className="text-[34px] font-semibold leading-tight text-[#5A6670]">设置</h1>
+          <Settings className="h-6 w-6 text-[#A8C8DC] sm:h-8 sm:w-8" />
+          <h1 className="text-2xl font-semibold leading-tight text-[#5A6670] sm:text-[34px]">设置</h1>
         </div>
-        <p className="mt-2 text-sm font-medium text-[#5A6670]/58">管理本地数据和当前项目状态。</p>
+        <p className="mt-2 hidden text-sm font-medium text-[#5A6670]/58 sm:block">管理本地数据和当前项目状态。</p>
       </header>
 
-      <section className="mt-10 grid gap-4 md:grid-cols-2">
-        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-5 shadow-[0_12px_28px_rgba(90,102,112,0.06)] md:col-span-2">
+      <section className="mt-6 grid gap-4 sm:mt-10 md:grid-cols-2">
+        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] sm:p-5 md:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               {isAdmin ? (
@@ -883,7 +883,7 @@ export function SettingsPage() {
           </div>
         </div>
 
-        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-5 shadow-[0_12px_28px_rgba(90,102,112,0.06)] md:col-span-2">
+        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] sm:p-5 md:col-span-2">
           <div>
             <p className="text-sm font-semibold text-[#5A6670]">密码设置</p>
             <p className="mt-2 text-sm leading-6 text-[#5A6670]/62">
@@ -938,7 +938,7 @@ export function SettingsPage() {
           </div>
         </div>
 
-        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-5 shadow-[0_12px_28px_rgba(90,102,112,0.06)] md:col-span-2">
+        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] sm:p-5 md:col-span-2">
           <div>
             <p className="text-sm font-semibold text-[#5A6670]">基础设置</p>
             <p className="mt-2 text-sm leading-6 text-[#5A6670]/62">
@@ -1030,7 +1030,7 @@ export function SettingsPage() {
           </div>
         </div>
 
-        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-5 shadow-[0_12px_28px_rgba(90,102,112,0.06)] md:col-span-2">
+        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] sm:p-5 md:col-span-2">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="text-sm font-semibold text-[#5A6670]">登录照片</p>
@@ -1129,12 +1129,12 @@ export function SettingsPage() {
             })}
           </div>
         </div>
-        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-5 shadow-[0_12px_28px_rgba(90,102,112,0.06)]">
+        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] sm:p-5">
           <p className="text-sm font-semibold text-[#5A6670]">本地回忆</p>
           <p className="mt-2 text-3xl font-semibold text-[#E8B8C2]">{memoryCount}</p>
           <p className="mt-2 text-sm text-[#5A6670]/58">网页里新增的城市回忆数量。</p>
         </div>
-        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-5 shadow-[0_12px_28px_rgba(90,102,112,0.06)]">
+        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] sm:p-5">
           <p className="text-sm font-semibold text-[#5A6670]">完整备份</p>
           <p className="mt-2 text-sm leading-6 text-[#5A6670]/62">
             导出城市回忆、城市地标图、地点收藏、纪念日和时光宝盒。换电脑前先备份一下。
@@ -1149,7 +1149,7 @@ export function SettingsPage() {
             导出备份
           </button>
         </div>
-        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-5 shadow-[0_12px_28px_rgba(90,102,112,0.06)]">
+        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] sm:p-5">
           <p className="text-sm font-semibold text-[#5A6670]">导入恢复</p>
           <p className="mt-2 text-sm leading-6 text-[#5A6670]/62">
             选择之前导出的备份文件，会覆盖当前城市回忆，并恢复辅助页面数据。
