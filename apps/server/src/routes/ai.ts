@@ -110,14 +110,45 @@ function hasToolFailure(text: string) {
   return /Permission denied|Shell execution|error:\s*Permission|Traceback|工具调用失败|MCP.*失败/i.test(text);
 }
 
+function normalizePolishCandidate(text: string) {
+  return text.replace(/\s+/g, "").replace(/[。！？!?，,、；;：:]+$/g, "");
+}
+
+function collapseRepeatedPolishText(text: string) {
+  const trimmed = text.trim();
+  const sentences = trimmed.match(/[^。！？!?]+[。！？!?]?/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [];
+
+  if (sentences.length > 1) {
+    const collapsed: string[] = [];
+    for (const sentence of sentences) {
+      const current = normalizePolishCandidate(sentence);
+      const previous = normalizePolishCandidate(collapsed.at(-1) ?? "");
+      if (current && current === previous) continue;
+      collapsed.push(sentence);
+    }
+    return collapsed.join("").trim();
+  }
+
+  const compact = trimmed.replace(/\s+/g, "");
+  for (let length = 1; length <= Math.floor(compact.length / 2); length += 1) {
+    if (compact.length % length !== 0) continue;
+    const unit = compact.slice(0, length);
+    if (unit.repeat(compact.length / length) === compact) return unit;
+  }
+
+  return trimmed;
+}
+
 function cleanPolishedMemory(text: string) {
-  return text
+  const cleaned = text
     .replace(/```[\s\S]*?```/g, "")
     .replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/g, "")
-    .replace(/^(润色后|改写|结果|回忆)[:：]\s*/i, "")
+    .replace(/(?:^|\n)\s*(?:润色后|改写|结果|回忆|候选\d*)[:：]\s*/gi, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 80);
+    .replace(/^(润色后|改写|结果|回忆|候选\d*)[:：]\s*/i, "");
+
+  return collapseRepeatedPolishText(cleaned).slice(0, 80);
 }
 
 function buildMemoryPolishPrompt(input: {
@@ -143,6 +174,7 @@ function buildMemoryPolishPrompt(input: {
     "- 更自然，更像情侣私密回忆。",
     "- 不要扩写成游记。",
     "- 不要输出 JSON、解释、标题、标签、引号或多条候选。",
+    "- 不要重复输出同一句话。",
     "- 只输出一句话，最多 80 个中文字符。",
   ].join("\n");
 }
