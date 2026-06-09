@@ -86,10 +86,15 @@ export const readAppSettings = (): AppSettings => {
   }
 };
 
-export const writeAppSettings = (settings: AppSettings) => {
+const writeLocalAppSettings = (settings: AppSettings) => {
   const normalized = normalizeAppSettings(settings);
   window.localStorage.setItem(appSettingsStorageKey, JSON.stringify(normalized));
   window.dispatchEvent(new CustomEvent<AppSettings>(appSettingsUpdatedEvent, { detail: normalized }));
+  return normalized;
+};
+
+export const writeAppSettings = (settings: AppSettings) => {
+  const normalized = writeLocalAppSettings(settings);
   if (!readSession()) return;
   void apiJson<{ settings: AppSettings }>("/settings", {
     method: "PUT",
@@ -97,12 +102,20 @@ export const writeAppSettings = (settings: AppSettings) => {
   }).catch(() => {});
 };
 
+export const saveAppSettings = async (settings: AppSettings) => {
+  const normalized = normalizeAppSettings(settings);
+  if (!readSession()) return writeLocalAppSettings(normalized);
+
+  const data = await apiJson<{ settings: AppSettings }>("/settings", {
+    method: "PUT",
+    body: JSON.stringify({ settings: normalized }),
+  });
+  return writeLocalAppSettings(data.settings);
+};
+
 export const syncAppSettings = async () => {
   if (!readSession()) return readAppSettings();
 
   const data = await apiJson<{ settings: AppSettings }>("/settings");
-  const normalized = normalizeAppSettings(data.settings);
-  window.localStorage.setItem(appSettingsStorageKey, JSON.stringify(normalized));
-  window.dispatchEvent(new CustomEvent<AppSettings>(appSettingsUpdatedEvent, { detail: normalized }));
-  return normalized;
+  return writeLocalAppSettings(data.settings);
 };

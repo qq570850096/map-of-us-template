@@ -22,6 +22,7 @@ import {
 } from "@/data/progress";
 import {
   readAppSettings,
+  saveAppSettings,
   writeAppSettings,
   syncAppSettings,
   defaultAnniversaryDate,
@@ -47,7 +48,8 @@ import {
   writeAdminMode,
 } from "@/data/adminMode";
 import { LocalPrivacyImage } from "@/components/LocalPrivacyImage";
-import { apiFetch } from "@/lib/apiClient";
+import { apiFetch, login } from "@/lib/apiClient";
+import { hasOwnerRole, readSession } from "@/lib/authStore";
 
 type StoredItem = {
   id: string;
@@ -749,7 +751,9 @@ export function SettingsPage() {
   const [adminCode, setAdminCode] = useState("");
   const [adminError, setAdminError] = useState("");
   const [status, setStatus] = useState("");
+  const [basicSettingsStatus, setBasicSettingsStatus] = useState("");
   const [isWorking, setIsWorking] = useState(false);
+  const [isSavingBasicSettings, setIsSavingBasicSettings] = useState(false);
   const [newEntryPassword, setNewEntryPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -893,19 +897,36 @@ export function SettingsPage() {
     }
 
     setBasicSettingsDraft((current) => ({ ...current, ...patch }));
+    setBasicSettingsStatus("有未保存的基础设置，点击保存后才会同步到首页和服务器。");
     setStatus("");
   };
 
-  const saveBasicSettings = () => {
+  const saveBasicSettings = async () => {
     if (!isAdmin) {
       setStatus("请先进入管理员模式");
       return;
     }
+    if (isSavingBasicSettings) return;
+
     const next = { ...appSettings, ...basicSettingsDraft };
-    setAppSettings(next);
-    setBasicSettingsDraft(next);
-    writeAppSettings(next);
-    setStatus("基础设置已保存");
+    const willSyncServer = Boolean(readSession());
+
+    setIsSavingBasicSettings(true);
+    setBasicSettingsStatus("基础设置保存中……");
+    setStatus("");
+
+    try {
+      const saved = await saveAppSettings(next);
+      setAppSettings(saved);
+      setBasicSettingsDraft(saved);
+      setBasicSettingsStatus(willSyncServer ? "基础设置已保存并同步到服务器。" : "基础设置已保存到本机。");
+      setStatus(willSyncServer ? "基础设置已保存并同步到服务器" : "基础设置已保存到本机");
+    } catch {
+      setBasicSettingsStatus("基础设置保存失败：服务器没有确认保存，请检查登录状态和网络后重试。");
+      setStatus("基础设置保存失败，请检查网络后重试");
+    } finally {
+      setIsSavingBasicSettings(false);
+    }
   };
 
   const updateWeatherCity = (index: number, cityId: string) => {
@@ -915,7 +936,10 @@ export function SettingsPage() {
     updateBasicSetting({ weatherCityIds: nextIds });
   };
 
-  const coupleLogo = appSettings.coupleLogo ?? defaultCoupleLogo;
+  const hasDraftCoupleLogo = Object.prototype.hasOwnProperty.call(basicSettingsDraft, "coupleLogo");
+  const coupleLogo = hasDraftCoupleLogo
+    ? basicSettingsDraft.coupleLogo ?? defaultCoupleLogo
+    : appSettings.coupleLogo ?? defaultCoupleLogo;
 
   const updateCoupleLogo = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -932,7 +956,7 @@ export function SettingsPage() {
     try {
       const image = await imageFileToSettingImage(file);
       updateBasicSetting({ coupleLogo: image });
-      setStatus("头像 logo 已更新");
+      setBasicSettingsStatus("头像 logo 已加入草稿，点击保存基础设置后生效。");
     } catch {
       setStatus("头像 logo 更新失败，请选择一张图片");
     } finally {
@@ -947,7 +971,7 @@ export function SettingsPage() {
       return;
     }
     updateBasicSetting({ coupleLogo: undefined });
-    setStatus("头像 logo 已恢复默认");
+    setBasicSettingsStatus("头像 logo 已恢复为默认草稿，点击保存基础设置后生效。");
   };
 
   const savePassword = async (target: "site" | "admin", value: string) => {
@@ -1081,13 +1105,7 @@ export function SettingsPage() {
   };
 
   const unlockAdmin = async () => {
-    const response = await apiFetch("/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "admin", password: adminCode }),
-    }).catch(() => null);
-
-    if (response?.ok) {
+    if (hasOwnerRole()) {
       writeAdminMode(true);
       setAdminCode("");
       setAdminError("");
@@ -1095,15 +1113,25 @@ export function SettingsPage() {
       return;
     }
 
-    setAdminError(response?.status === 503 ? "管理员认证未配置" : "密码不对");
+    if (!adminCode.trim()) {
+      setAdminError("请输入管理员密码");
+      return;
+    }
+
+    const loggedIn = await login("me", adminCode).catch(() => false);
+
+    if (loggedIn && hasOwnerRole()) {
+      writeAdminMode(true);
+      setAdminCode("");
+      setAdminError("");
+      setStatus("管理员模式已开启");
+      return;
+    }
+
+    setAdminError(loggedIn ? "当前账号不是管理员" : "密码不对");
   };
 
   const lockAdmin = () => {
-    void apiFetch("/auth/login", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "admin" }),
-    }).catch(() => null);
     writeAdminMode(false);
     setAdminCode("");
     setAdminError("");
@@ -1288,12 +1316,25 @@ export function SettingsPage() {
             <button
               className="inline-flex min-h-11 items-center rounded-[8px] bg-[#273846] px-4 text-sm font-semibold text-white transition hover:bg-[#D86F82] disabled:opacity-50"
               type="button"
-              onClick={saveBasicSettings}
-              disabled={!isAdmin}
+              onClick={() => void saveBasicSettings()}
+              disabled={!isAdmin || isSavingBasicSettings}
             >
-              保存基础设置
+              {isSavingBasicSettings ? "保存中" : "保存基础设置"}
             </button>
           </div>
+          {basicSettingsStatus ? (
+            <p
+              className={`mt-3 rounded-[8px] border px-3 py-2 text-xs font-semibold ${
+                basicSettingsStatus.includes("失败")
+                  ? "border-[#F5DCE0] bg-[#F5DCE0]/30 text-[#D86F82]"
+                  : basicSettingsStatus.includes("未保存")
+                    ? "border-[#D8DDD8] bg-white/42 text-[#5A6670]/66"
+                    : "border-[#D6E8F0] bg-[#D6E8F0]/30 text-[#5A6670]/70"
+              }`}
+            >
+              {basicSettingsStatus}
+            </p>
+          ) : null}
 
           <div className="mt-5">
             <p className="text-xs font-semibold text-[#5A6670]/48">右下角头像 logo</p>
