@@ -43,6 +43,15 @@ function asPositiveDays(value: unknown, fallback = 3) {
   return Number.isInteger(days) && days > 0 && days <= 30 ? days : fallback;
 }
 
+function daysBetweenInclusive(startDate: string, endDate: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return null;
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return null;
+  const days = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+  return days > 0 && days <= 30 ? days : null;
+}
+
 function asTravelStyle(value: unknown): "relaxed" | "balanced" | "packed" {
   if (value === "relaxed" || value === "balanced" || value === "packed") return value;
   if (value === "轻松慢游") return "relaxed";
@@ -189,12 +198,14 @@ function normalizeTripGuideInput(payload: {
   transportPreference?: unknown;
   travelStyle?: unknown;
 }): TripGuideInput {
+  const startDate = asString(payload.startDate);
+  const endDate = asString(payload.endDate);
   return {
     origin: asString(payload.origin),
     destination: asString(payload.destination),
-    days: asPositiveDays(payload.days),
-    startDate: asString(payload.startDate),
-    endDate: asString(payload.endDate),
+    days: daysBetweenInclusive(startDate, endDate) ?? asPositiveDays(payload.days),
+    startDate,
+    endDate,
     preferences: asString(payload.preferences),
     transportPreference: asString(payload.transportPreference, "unknown"),
     travelStyle: asTravelStyle(payload.travelStyle),

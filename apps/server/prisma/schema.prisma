@@ -108,6 +108,7 @@ model Memory {
   cityEn      String
   date        String
   text        String
+  tags        String[]      @default([])
   coverPhotoId String?
   createdById String?
   createdAt   DateTime      @default(now())
@@ -180,6 +181,7 @@ model AuxiliaryItem {
   date      String?
   note      String        @default("")
   cityId    String?
+  payload   Json?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   space     Space         @relation(fields: [spaceId], references: [id], onDelete: Cascade)

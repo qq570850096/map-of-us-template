@@ -2,7 +2,8 @@ import Image from "next/image";
 import { ChevronUp } from "lucide-react";
 import ChinaMap, { SouthChinaSeaInset } from "@/components/ChinaMap";
 import BackToLoginButton from "@/components/BackToLoginButton";
-import { LegendProgress, ProgressBadge, StatsPanel } from "@/components/HomeProgress";
+import { LegendProgress, ProgressBadge, StatsPanel, WeatherCard } from "@/components/HomeProgress";
+import MobileAppNav from "@/components/MobileAppNav";
 import RandomPhotoCard from "@/components/RandomPhotoCard";
 
 function BrandMark() {
@@ -90,7 +91,7 @@ function Legend({ compact = false }: Readonly<{ compact?: boolean }>) {
 
 function MobileMapDock() {
   return (
-    <details className="group absolute inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] z-40 overflow-hidden rounded-[8px] border border-[#D8DDD8]/85 bg-[#FAFBF7]/90 shadow-[0_18px_44px_rgba(90,102,112,0.14)] backdrop-blur-xl lg:hidden">
+    <details className="group absolute inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] z-40 overflow-hidden rounded-[8px] border border-[#D8DDD8]/85 bg-[#FAFBF7]/90 shadow-[0_18px_44px_rgba(90,102,112,0.14)] backdrop-blur-xl lg:hidden">
       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 pl-14 sm:pl-3 [&::-webkit-details-marker]:hidden">
         <span className="min-w-0">
           <span className="block truncate text-sm font-semibold text-[#5A6670]">地图信息</span>
@@ -102,10 +103,13 @@ function MobileMapDock() {
           </span>
         </span>
       </summary>
-      <div className="grid max-h-[30dvh] grid-cols-[auto_minmax(0,1fr)] gap-2 overflow-y-auto border-t border-[#D8DDD8]/64 px-3 py-2">
-        <SouthChinaSeaInset compact />
-        <div className="min-w-0 self-center">
-          <Legend compact />
+      <div className="max-h-[48dvh] overflow-y-auto border-t border-[#D8DDD8]/64 px-3 py-2">
+        <WeatherCard />
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-2">
+          <SouthChinaSeaInset compact />
+          <div className="min-w-0 self-center">
+            <Legend compact />
+          </div>
         </div>
       </div>
     </details>
@@ -160,6 +164,7 @@ export default function MapPage() {
             <Legend />
           </div>
           <MobileMapDock />
+          <MobileAppNav active="map" />
         </section>
         <StatsPanel>{null}</StatsPanel>
       </div>

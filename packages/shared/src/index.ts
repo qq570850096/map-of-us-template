@@ -25,6 +25,7 @@ export const memorySchema = z.object({
   cityEn: z.string(),
   date: z.string(),
   text: z.string(),
+  tags: z.array(z.string()).default([]),
   image: z.string(),
   photos: z.array(z.string()).default([]),
   photoItems: z.array(memoryPhotoSchema).default([]),
@@ -62,6 +63,7 @@ export const auxiliaryItemSchema = z.object({
   date: z.string().optional(),
   note: z.string().default(""),
   cityId: z.string().optional(),
+  payload: z.unknown().optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
 });
@@ -87,6 +89,7 @@ export const memoryUpsertPayloadSchema = z.object({
       cityId: z.string().min(1),
       date: z.string().min(1),
       text: z.string().min(1).max(500),
+      tags: z.array(z.string()).optional(),
       image: z.string().optional(),
       photos: z.array(z.string()).optional(),
     }),

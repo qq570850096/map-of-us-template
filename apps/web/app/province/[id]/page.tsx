@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { ProvinceProgressBadge } from "@/components/HomeProgress";
+import MobileAppNav from "@/components/MobileAppNav";
 import ProvinceMap from "@/components/ProvinceMap";
 import { getCitiesByProvince } from "@/data/cities";
 import { getProvinceCityTotal } from "@/data/provinceCityPlaces";
@@ -53,11 +54,11 @@ export default async function ProvincePage({ params }: ProvincePageProps) {
           <div aria-hidden="true" />
         </header>
 
-        <section className="relative z-10 flex flex-1 items-center justify-center pb-28 pt-6 sm:pb-16">
+        <section className="relative z-10 flex flex-1 items-center justify-center pb-44 pt-6 sm:pb-16">
           <ProvinceMap province={province} />
         </section>
 
-        <div className="absolute bottom-8 left-6 z-40 rounded-[8px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/76 px-5 py-4 text-sm text-[#5A6670]/78 shadow-[0_10px_28px_rgba(90,102,112,0.08)] backdrop-blur sm:left-9">
+        <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+5rem)] left-6 z-40 hidden rounded-[8px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/76 px-5 py-4 text-sm text-[#5A6670]/78 shadow-[0_10px_28px_rgba(90,102,112,0.08)] backdrop-blur sm:left-9 lg:block">
           <div className="flex items-center gap-3">
             <span className="h-3.5 w-3.5 rounded-full bg-[#E8B8C2] shadow-[0_0_10px_rgba(232,184,194,0.55)]" />
             <span>已探索</span>
@@ -67,6 +68,7 @@ export default async function ProvincePage({ params }: ProvincePageProps) {
             <span>未探索</span>
           </div>
         </div>
+        <MobileAppNav active="map" />
       </div>
     </main>
   );

@@ -1,0 +1,3 @@
+ALTER TABLE "Memory" ADD COLUMN "tags" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+
+ALTER TABLE "AuxiliaryItem" ADD COLUMN "payload" JSONB;

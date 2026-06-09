@@ -7,6 +7,7 @@ type MemoryWithPhotos = {
   cityEn: string;
   date: string;
   text: string;
+  tags?: string[];
   coverPhotoId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -32,6 +33,7 @@ export function serializeMemory(memory: MemoryWithPhotos): Memory {
     cityEn: memory.cityEn,
     date: memory.date,
     text: memory.text,
+    tags: memory.tags ?? [],
     image: cover?.url ?? "",
     photos: sortedPhotos.map((photo) => photo.url),
     photoItems: sortedPhotos.map(

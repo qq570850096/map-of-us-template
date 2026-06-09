@@ -22,7 +22,7 @@ import {
 import { LocalPrivacyImage, LocalPrivacyImg } from "@/components/LocalPrivacyImage";
 import { apiFetch } from "@/lib/apiClient";
 
-type ArchiveView = "city" | "timeline";
+type ArchiveView = "city" | "timeline" | "tag";
 type MemoryItem = {
   memory: Memory;
   city?: (typeof cities)[number];
@@ -88,6 +88,8 @@ function MemoryCard({ item, compact = false }: Readonly<{ item: MemoryItem; comp
 export default function MemoryArchive() {
   const [localMemories, setLocalMemories] = useState<LocalMemoryStore>({});
   const [view, setView] = useState<ArchiveView>("city");
+  const [selectedCityId, setSelectedCityId] = useState("all");
+  const [selectedTag, setSelectedTag] = useState("all");
   const [expandedCities, setExpandedCities] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -131,10 +133,30 @@ export default function MemoryArchive() {
     }));
   }, [localMemories]);
 
+  const allTags = useMemo(
+    () => [...new Set(memoryItems.flatMap((item) => item.memory.tags ?? []))],
+    [memoryItems],
+  );
+  const allCityOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    memoryItems.forEach((item) => byId.set(item.memory.cityId, item.memory.city));
+    return [...byId.entries()].map(([cityId, cityName]) => ({ cityId, cityName }));
+  }, [memoryItems]);
+
+  const filteredMemoryItems = useMemo(
+    () =>
+      memoryItems.filter((item) => {
+        const cityMatches = selectedCityId === "all" || item.memory.cityId === selectedCityId;
+        const tagMatches = selectedTag === "all" || (item.memory.tags ?? []).includes(selectedTag);
+        return cityMatches && tagMatches;
+      }),
+    [memoryItems, selectedCityId, selectedTag],
+  );
+
   const cityGroups = useMemo(() => {
     const groups = new Map<string, MemoryItem[]>();
 
-    memoryItems.forEach((item) => {
+    filteredMemoryItems.forEach((item) => {
       const key = item.memory.cityId;
       groups.set(key, [...(groups.get(key) ?? []), item]);
     });
@@ -144,18 +166,27 @@ export default function MemoryArchive() {
       cityName: items[0]?.memory.city ?? cityId,
       memories: items,
     }));
-  }, [memoryItems]);
+  }, [filteredMemoryItems]);
 
   const timelineGroups = useMemo(() => {
     const groups = new Map<string, MemoryItem[]>();
 
-    memoryItems.forEach((item) => {
+    filteredMemoryItems.forEach((item) => {
       const label = memoryMonthLabel(item.memory);
       groups.set(label, [...(groups.get(label) ?? []), item]);
     });
 
     return [...groups.entries()].map(([label, items]) => ({ label, memories: items }));
-  }, [memoryItems]);
+  }, [filteredMemoryItems]);
+
+  const tagGroups = useMemo(
+    () =>
+      allTags.map((tag) => ({
+        tag,
+        memories: filteredMemoryItems.filter((item) => (item.memory.tags ?? []).includes(tag)),
+      })).filter((group) => group.memories.length > 0),
+    [allTags, filteredMemoryItems],
+  );
 
   const cityCount = cityGroups.length;
 
@@ -178,16 +209,16 @@ export default function MemoryArchive() {
                 <h1 className="text-2xl font-semibold leading-tight text-[#5A6670] sm:text-[34px]">回忆记录</h1>
               </div>
               <p className="mt-2 hidden text-sm font-medium text-[#5A6670]/58 sm:block">
-                {view === "city" ? "按城市整理我们的足迹" : "按时间从新到旧排列"}
+                {view === "city" ? "按城市整理我们的足迹" : view === "timeline" ? "按时间从新到旧排列" : "按标签整理每一种小主题"}
               </p>
             </div>
 
             <div className="flex items-center gap-3">
               <div className="rounded-[8px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/72 px-4 py-2 text-sm font-semibold text-[#5A6670]/62 shadow-[0_8px_24px_rgba(90,102,112,0.08)] backdrop-blur">
-                {memoryItems.length} 条 · {cityCount} 城
+                {filteredMemoryItems.length} 条 · {cityCount} 城
               </div>
               <div className="flex rounded-[8px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/72 p-1 shadow-[0_8px_24px_rgba(90,102,112,0.08)] backdrop-blur">
-                {(["city", "timeline"] as const).map((mode) => (
+                {(["city", "timeline", "tag"] as const).map((mode) => (
                   <button
                     key={mode}
                     className={`rounded-[7px] px-4 py-2 text-sm font-semibold transition ${
@@ -198,12 +229,45 @@ export default function MemoryArchive() {
                     type="button"
                     onClick={() => setView(mode)}
                   >
-                    {mode === "city" ? "城市" : "时间线"}
+                    {mode === "city" ? "城市" : mode === "timeline" ? "时间线" : "标签"}
                   </button>
                 ))}
               </div>
             </div>
           </header>
+
+          <div className="mt-5 grid gap-3 rounded-[8px] border border-[#D8DDD8]/72 bg-[#FAFBF7]/66 p-3 shadow-[0_10px_24px_rgba(90,102,112,0.05)] backdrop-blur sm:grid-cols-2">
+            <label className="grid gap-1 text-xs font-semibold text-[#5A6670]/54">
+              城市筛选
+              <select
+                className="min-h-11 rounded-[7px] border border-[#D8DDD8] bg-white/70 px-3 text-sm text-[#5A6670] outline-none transition focus:border-[#A8C8DC]"
+                value={selectedCityId}
+                onChange={(event) => setSelectedCityId(event.target.value)}
+              >
+                <option value="all">全部城市</option>
+                {allCityOptions.map((city) => (
+                  <option key={city.cityId} value={city.cityId}>
+                    {city.cityName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-[#5A6670]/54">
+              标签筛选
+              <select
+                className="min-h-11 rounded-[7px] border border-[#D8DDD8] bg-white/70 px-3 text-sm text-[#5A6670] outline-none transition focus:border-[#A8C8DC]"
+                value={selectedTag}
+                onChange={(event) => setSelectedTag(event.target.value)}
+              >
+                <option value="all">全部标签</option>
+                {allTags.map((tag) => (
+                  <option key={tag} value={tag}>
+                    #{tag}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
           {memoryItems.length === 0 ? (
             <div className="mt-12 grid min-h-[420px] place-items-center rounded-[8px] border border-dashed border-[#D8DDD8] bg-[#FAFBF7]/58 px-6 py-14 text-center shadow-[0_14px_34px_rgba(90,102,112,0.045)] backdrop-blur">
@@ -223,6 +287,10 @@ export default function MemoryArchive() {
                   回到地图
                 </Link>
               </div>
+            </div>
+          ) : filteredMemoryItems.length === 0 ? (
+            <div className="mt-8 rounded-[8px] border border-dashed border-[#D8DDD8] bg-[#FAFBF7]/58 px-6 py-12 text-center text-sm text-[#5A6670]/58">
+              没有符合筛选条件的回忆。
             </div>
           ) : view === "city" ? (
             <div className="mt-6 space-y-6 sm:mt-10 sm:space-y-9">
@@ -260,7 +328,7 @@ export default function MemoryArchive() {
                 );
               })}
             </div>
-          ) : (
+          ) : view === "timeline" ? (
             <div className="relative mt-6 space-y-6 pl-9 sm:mt-10 sm:space-y-8">
               <div className="absolute bottom-0 left-3 top-0 w-px bg-[#E8B8C2]/58" aria-hidden="true" />
               {timelineGroups.map((group) => (
@@ -269,6 +337,22 @@ export default function MemoryArchive() {
                     <span className="h-2.5 w-2.5 rounded-full bg-[#E8B8C2]" />
                   </span>
                   <h2 className="mb-4 text-2xl font-semibold text-[#5A6670]">{group.label}</h2>
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    {group.memories.map((item) => (
+                      <MemoryCard key={item.memory.id} item={item} />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-6 space-y-8 sm:mt-10">
+              {tagGroups.map((group) => (
+                <section key={group.tag}>
+                  <div className="mb-4 flex items-baseline gap-3">
+                    <h2 className="text-2xl font-semibold text-[#5A6670]">#{group.tag}</h2>
+                    <span className="text-sm text-[#5A6670]/48">{group.memories.length} 条回忆</span>
+                  </div>
                   <div className="grid gap-4 xl:grid-cols-2">
                     {group.memories.map((item) => (
                       <MemoryCard key={item.memory.id} item={item} />

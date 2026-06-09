@@ -55,8 +55,19 @@ type StoredItem = {
   date?: string;
   note: string;
   cityId?: string;
+  payload?: unknown;
 };
 type CityAssetStore = Record<string, string>;
+type AnniversaryRepeat = "none" | "yearly";
+type AnniversaryPayload = {
+  category?: string;
+  repeat?: AnniversaryRepeat;
+};
+type AuxiliaryItem = StoredItem & {
+  kind?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
 
 type ToolConfig = {
   active: MemoryNavKey;
@@ -249,6 +260,46 @@ const daysUntil = (value?: string) => {
   today.setHours(0, 0, 0, 0);
 
   return Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
+};
+
+const dotDateToInputDate = (value?: string) => {
+  const match = /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/.exec(value ?? "");
+  if (!match) return "";
+  return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+};
+
+const inputDateToDotDate = (value: string) => value ? value.replaceAll("-", ".") : "";
+
+const parseDotDate = (value?: string) => {
+  const match = /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/.exec(value ?? "");
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  date.setHours(0, 0, 0, 0);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const daysSince = (value?: string) => {
+  const start = parseDotDate(value);
+  if (!start) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.floor((today.getTime() - start.getTime()) / 86_400_000);
+};
+
+const daysBetweenDotDatesInclusive = (startValue?: string, endValue?: string) => {
+  const start = parseDotDate(startValue);
+  const end = parseDotDate(endValue);
+  if (!start || !end) return null;
+  return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+};
+
+const anniversaryPayload = (value: unknown): AnniversaryPayload => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return { repeat: "yearly", category: "纪念日" };
+  const record = value as AnniversaryPayload;
+  return {
+    category: typeof record.category === "string" ? record.category : "纪念日",
+    repeat: record.repeat === "none" ? "none" : "yearly",
+  };
 };
 
 function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
@@ -458,7 +509,231 @@ export function FavoritesPage() {
 }
 
 export function AnniversariesPage() {
-  return <MemoryToolPage config={configs.anniversary} />;
+  const isAdmin = useAdminMode();
+  const [items, setItems] = useState<AuxiliaryItem[]>([]);
+  const [title, setTitle] = useState("");
+  const [date, setDate] = useState("");
+  const [note, setNote] = useState("");
+  const [category, setCategory] = useState("纪念日");
+  const [repeat, setRepeat] = useState<AnniversaryRepeat>("yearly");
+  const [editingId, setEditingId] = useState("");
+  const [status, setStatus] = useState("");
+  const [appSettings, setAppSettings] = useState<AppSettings>({});
+  const baselineDate = appSettings.anniversaryDate ?? defaultAnniversaryDate;
+  const baselineDays = daysSince(appSettings.anniversaryDate ?? defaultAnniversaryDate);
+
+  const load = async () => {
+    const response = await apiFetch("/anniversaries", { cache: "no-store" }).catch(() => null);
+    const data = (await response?.json().catch(() => null)) as { items?: AuxiliaryItem[] } | null;
+    if (data?.items) setItems(data.items);
+  };
+
+  useEffect(() => {
+    window.setTimeout(() => {
+      void load();
+      void syncAppSettings().then(setAppSettings).catch(() => setAppSettings(readAppSettings()));
+    }, 0);
+  }, []);
+
+  const resetForm = () => {
+    setTitle("");
+    setDate("");
+    setNote("");
+    setCategory("纪念日");
+    setRepeat("yearly");
+    setEditingId("");
+  };
+
+  const save = async () => {
+    if (!isAdmin || !title.trim()) {
+      setStatus(isAdmin ? "" : "请先进入管理员模式");
+      return;
+    }
+    setStatus("");
+    const response = await apiFetch("/auxiliary-items", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: editingId || undefined,
+        kind: "anniversary",
+        title: title.trim(),
+        date: inputDateToDotDate(date),
+        note: note.trim(),
+        payload: { category: category.trim() || "纪念日", repeat },
+      }),
+    }).catch(() => null);
+    if (!response?.ok) {
+      setStatus("保存失败，请稍后再试");
+      return;
+    }
+    resetForm();
+    setStatus("纪念日已保存");
+    await load();
+  };
+
+  const startEdit = (item: AuxiliaryItem) => {
+    if (!isAdmin) return;
+    const payload = anniversaryPayload(item.payload);
+    setEditingId(item.id);
+    setTitle(item.title);
+    setDate(dotDateToInputDate(item.date));
+    setNote(item.note);
+    setCategory(payload.category ?? "纪念日");
+    setRepeat(payload.repeat ?? "yearly");
+  };
+
+  const remove = async (id: string) => {
+    if (!isAdmin) return;
+    await apiFetch(`/auxiliary-items/${id}`, { method: "DELETE" }).catch(() => null);
+    if (editingId === id) resetForm();
+    await load();
+  };
+
+  return (
+    <MemoryPageShell active="anniversaries">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <CalendarDays className="h-6 w-6 text-[#E8B8C2] sm:h-8 sm:w-8" />
+            <h1 className="text-2xl font-semibold leading-tight text-[#5A6670] sm:text-[34px]">纪念日墙</h1>
+          </div>
+          <p className="mt-2 text-sm font-medium text-[#5A6670]/58">把很多个重要日子放在同一面墙上。</p>
+        </div>
+        <div className="rounded-[14px] border border-[#F5DCE0] bg-[#F5DCE0]/42 px-5 py-3 text-right shadow-[0_12px_28px_rgba(232,184,194,0.12)]">
+          <p className="text-xs font-semibold text-[#D86F82]/70">{appSettings.anniversaryLabel ?? defaultAnniversaryLabel}</p>
+          <p className="mt-1 text-2xl font-semibold text-[#D86F82]">{baselineDays ?? 0} 天</p>
+        </div>
+      </header>
+
+      <section className="mt-6 grid gap-5 lg:grid-cols-[340px_1fr]">
+        <div className="h-fit rounded-[14px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/78 p-4 shadow-[0_14px_34px_rgba(90,102,112,0.07)] backdrop-blur sm:p-5">
+          <p className="text-sm font-semibold text-[#5A6670]">{editingId ? "编辑纪念日" : "新增纪念日"}</p>
+          <input
+            className="mt-4 min-h-11 w-full rounded-[9px] border border-[#D8DDD8] bg-white/62 px-3 text-sm outline-none transition focus:border-[#E8B8C2]"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="比如：第一次旅行"
+            disabled={!isAdmin}
+          />
+          <input
+            className="mt-3 min-h-11 w-full rounded-[9px] border border-[#D8DDD8] bg-white/62 px-3 text-sm outline-none transition focus:border-[#E8B8C2]"
+            type="date"
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+            disabled={!isAdmin}
+          />
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <input
+              className="min-h-11 rounded-[9px] border border-[#D8DDD8] bg-white/62 px-3 text-sm outline-none transition focus:border-[#E8B8C2]"
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+              placeholder="分类"
+              disabled={!isAdmin}
+            />
+            <select
+              className="min-h-11 rounded-[9px] border border-[#D8DDD8] bg-white/62 px-3 text-sm outline-none transition focus:border-[#E8B8C2]"
+              value={repeat}
+              onChange={(event) => setRepeat(event.target.value as AnniversaryRepeat)}
+              disabled={!isAdmin}
+            >
+              <option value="yearly">每年重复</option>
+              <option value="none">只纪念一次</option>
+            </select>
+          </div>
+          <textarea
+            className="mt-3 min-h-24 w-full resize-none rounded-[9px] border border-[#D8DDD8] bg-white/62 px-3 py-2 text-sm leading-6 outline-none transition focus:border-[#E8B8C2]"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="写一点备注……"
+            disabled={!isAdmin}
+          />
+          <button
+            className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-[9px] bg-[#273846] px-4 text-sm font-semibold text-white transition hover:bg-[#D86F82] disabled:opacity-45"
+            type="button"
+            onClick={save}
+            disabled={!isAdmin || !title.trim()}
+          >
+            <Plus className="h-4 w-4" />
+            {editingId ? "保存修改" : "保存纪念日"}
+          </button>
+          {editingId ? (
+            <button
+              className="mt-2 min-h-10 w-full rounded-[9px] text-sm font-semibold text-[#5A6670]/56 transition hover:bg-[#D8DDD8]/28"
+              type="button"
+              onClick={resetForm}
+            >
+              取消编辑
+            </button>
+          ) : null}
+          {status ? <p className="mt-3 text-xs font-semibold text-[#D86F82]">{status}</p> : null}
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {items.map((item, index) => {
+            const payload = anniversaryPayload(item.payload);
+            const dayIndex = daysBetweenDotDatesInclusive(baselineDate, item.date);
+            const leftDays = daysUntil(item.date);
+            return (
+              <article
+                key={item.id}
+                className="relative overflow-hidden rounded-[18px] border border-[#D8DDD8]/74 bg-[#FAFBF7]/82 p-5 shadow-[0_16px_36px_rgba(90,102,112,0.08)] backdrop-blur"
+              >
+                <span className="absolute right-4 top-4 h-10 w-10 rounded-full bg-[#F5DCE0]/58" aria-hidden="true" />
+                <p className="text-xs font-semibold text-[#A8C8DC]">No. {String(index + 1).padStart(2, "0")}</p>
+                <h2 className="mt-3 pr-10 text-xl font-semibold text-[#5A6670]">{item.title}</h2>
+                <p className="mt-2 text-sm text-[#5A6670]/54">{item.date || "未设置日期"}</p>
+                <div className="mt-5 rounded-[14px] border border-[#F5DCE0]/66 bg-[#F5DCE0]/28 p-4">
+                  <p className="text-xs font-semibold text-[#D86F82]/62">距离第一次</p>
+                  <p className="mt-1 text-2xl font-semibold text-[#D86F82]">
+                    {dayIndex !== null ? `第 ${Math.max(1, dayIndex)} 天` : "待计算"}
+                  </p>
+                  {leftDays !== null ? (
+                    <p className="mt-2 text-sm font-semibold text-[#5A6670]/66">
+                      {leftDays >= 0 ? `还有 ${leftDays} 天` : `已经过去 ${Math.abs(leftDays)} 天`}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <span className="rounded-full border border-[#D8DDD8] bg-white/50 px-2.5 py-1 text-[11px] font-semibold text-[#5A6670]/58">
+                    {payload.category}
+                  </span>
+                  <span className="rounded-full border border-[#D8DDD8] bg-white/50 px-2.5 py-1 text-[11px] font-semibold text-[#5A6670]/58">
+                    {payload.repeat === "yearly" ? "每年重复" : "一次性"}
+                  </span>
+                </div>
+                {item.note ? <p className="mt-4 text-sm leading-6 text-[#5A6670]/68">{item.note}</p> : null}
+                <div className="mt-5 flex gap-2">
+                  <button
+                    className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-[9px] border border-[#D8DDD8] text-sm font-semibold text-[#5A6670]/62 transition hover:border-[#A8C8DC] hover:text-[#A8C8DC]"
+                    type="button"
+                    onClick={() => startEdit(item)}
+                    disabled={!isAdmin}
+                  >
+                    <Pencil className="h-4 w-4" />
+                    编辑
+                  </button>
+                  <button
+                    className="grid min-h-10 w-11 place-items-center rounded-[9px] border border-[#F5DCE0] text-[#D86F82] transition hover:bg-[#F5DCE0]/48"
+                    type="button"
+                    onClick={() => remove(item.id)}
+                    disabled={!isAdmin}
+                    aria-label="删除纪念日"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+          {items.length === 0 ? (
+            <div className="rounded-[18px] border border-dashed border-[#D8DDD8] bg-[#FAFBF7]/58 px-6 py-16 text-center text-sm text-[#5A6670]/54 md:col-span-2 xl:col-span-3">
+              纪念日墙还空着，先保存第一个重要日子。
+            </div>
+          ) : null}
+        </div>
+      </section>
+    </MemoryPageShell>
+  );
 }
 
 export function TimeCapsulePage() {
@@ -469,6 +744,7 @@ export function SettingsPage() {
   const isAdmin = useAdminMode();
   const [memoryCount, setMemoryCount] = useState(0);
   const [appSettings, setAppSettings] = useState<AppSettings>({});
+  const [basicSettingsDraft, setBasicSettingsDraft] = useState<AppSettings>({});
   const [loginPhotos, setLoginPhotos] = useState<Record<string, string>>({});
   const [adminCode, setAdminCode] = useState("");
   const [adminError, setAdminError] = useState("");
@@ -492,11 +768,15 @@ export function SettingsPage() {
     const timer = window.setTimeout(() => {
       void loadMemoryCount();
       const settings = readAppSettings();
-      void syncAppSettings().then(setAppSettings).catch(() => {});
+      void syncAppSettings().then((next) => {
+        setAppSettings(next);
+        setBasicSettingsDraft(next);
+      }).catch(() => {});
       const legacyPhotos = settings.loginPhotos ?? {};
       const nextSettings = { ...settings, loginPhotos: undefined };
 
       setAppSettings(nextSettings);
+      setBasicSettingsDraft(nextSettings);
       void Promise.all(Object.entries(legacyPhotos).map(([slotId, image]) => writeLoginPhoto(slotId, image)))
         .then(async () => {
           if (Object.keys(legacyPhotos).length > 0) writeAppSettings(nextSettings);
@@ -602,9 +882,9 @@ export function SettingsPage() {
       .catch(() => setStatus("登录文字恢复失败，请稍后再试"));
   };
 
-  const anniversaryDate = appSettings.anniversaryDate ?? "";
-  const anniversaryLabel = appSettings.anniversaryLabel ?? "";
-  const weatherCityIds = appSettings.weatherCityIds ?? defaultWeatherCityIds;
+  const anniversaryDate = basicSettingsDraft.anniversaryDate ?? "";
+  const anniversaryLabel = basicSettingsDraft.anniversaryLabel ?? "";
+  const weatherCityIds = basicSettingsDraft.weatherCityIds ?? defaultWeatherCityIds;
 
   const updateBasicSetting = (patch: Partial<AppSettings>) => {
     if (!isAdmin) {
@@ -612,10 +892,20 @@ export function SettingsPage() {
       return;
     }
 
-    const next = { ...appSettings, ...patch };
+    setBasicSettingsDraft((current) => ({ ...current, ...patch }));
+    setStatus("");
+  };
+
+  const saveBasicSettings = () => {
+    if (!isAdmin) {
+      setStatus("请先进入管理员模式");
+      return;
+    }
+    const next = { ...appSettings, ...basicSettingsDraft };
     setAppSettings(next);
+    setBasicSettingsDraft(next);
     writeAppSettings(next);
-    setStatus("基础设置已更新");
+    setStatus("基础设置已保存");
   };
 
   const updateWeatherCity = (index: number, cityId: string) => {
@@ -961,9 +1251,10 @@ export function SettingsPage() {
               <span className="text-xs font-semibold text-[#5A6670]/48">纪念日开始日期（如 2025.12.23）</span>
               <input
                 className="min-h-10 rounded-[7px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/70 px-3 text-sm text-[#5A6670] outline-none transition focus:border-[#A8C8DC] focus:bg-white"
-                value={anniversaryDate}
+                value={dotDateToInputDate(anniversaryDate)}
                 placeholder={defaultAnniversaryDate}
-                onChange={(event) => updateBasicSetting({ anniversaryDate: event.target.value })}
+                type="date"
+                onChange={(event) => updateBasicSetting({ anniversaryDate: inputDateToDotDate(event.target.value) })}
                 disabled={!isAdmin}
               />
             </label>
@@ -988,6 +1279,20 @@ export function SettingsPage() {
                 </select>
               ))}
             </div>
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#D8DDD8]/70 pt-4">
+            <p className="text-xs leading-5 text-[#5A6670]/52">
+              修改后点击保存才会同步到首页、App 和后端。
+            </p>
+            <button
+              className="inline-flex min-h-11 items-center rounded-[8px] bg-[#273846] px-4 text-sm font-semibold text-white transition hover:bg-[#D86F82] disabled:opacity-50"
+              type="button"
+              onClick={saveBasicSettings}
+              disabled={!isAdmin}
+            >
+              保存基础设置
+            </button>
           </div>
 
           <div className="mt-5">

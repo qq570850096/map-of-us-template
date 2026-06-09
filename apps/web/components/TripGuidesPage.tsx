@@ -81,6 +81,24 @@ type SelectedItem =
   | { kind: "draft"; id: string; payload: TripPayload }
   | { kind: "new"; id: string; payload: TripPayload };
 
+function daysBetweenInclusive(startDate?: string, endDate?: string) {
+  if (!startDate || !endDate) return null;
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return null;
+  const days = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+  return days > 0 && days <= 30 ? days : null;
+}
+
+function resizeDaysPlan(payload: TripPayload, days: number): TripPayload {
+  const nextDays = Math.max(1, Math.min(30, days || 1));
+  return {
+    ...payload,
+    days: nextDays,
+    daysPlan: Array.from({ length: nextDays }, (_, index) => payload.daysPlan[index] ?? emptyDay(index + 1)),
+  };
+}
+
 type AiQuestion = {
   id: string;
   question: string;
@@ -467,13 +485,12 @@ function TripEditor({
   const changeTransport = (patch: Partial<TripPayload["transport"]>) => change({ transport: { ...payload.transport, ...patch } });
   const changeDay = (index: number, day: TripDay) => change({ daysPlan: updateArray(payload.daysPlan, index, day) });
 
-  const setDays = (daysValue: number) => {
-    const days = Math.max(1, Math.min(30, daysValue || 1));
-    change({
-      days,
-      daysPlan: Array.from({ length: days }, (_, index) => payload.daysPlan[index] ?? emptyDay(index + 1)),
-    });
+  const setDate = (patch: Pick<TripPayload, "startDate"> | Pick<TripPayload, "endDate">) => {
+    const next = { ...payload, ...patch };
+    const days = daysBetweenInclusive(next.startDate, next.endDate);
+    onChange(days ? resizeDaysPlan(next, days) : next);
   };
+  const dateError = Boolean(payload.startDate && payload.endDate && !daysBetweenInclusive(payload.startDate, payload.endDate));
 
   return (
     <article className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/78 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] sm:p-5">
@@ -490,7 +507,7 @@ function TripEditor({
               className="inline-flex min-h-10 items-center gap-2 rounded-[8px] border border-[#A8C8DC] px-3 text-sm font-semibold text-[#5A6670] transition hover:bg-[#D6E8F0]"
               type="button"
               onClick={onAcceptDraft}
-              disabled={working !== null}
+              disabled={working !== null || dateError}
             >
               {working === "accept" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               保存为攻略
@@ -500,7 +517,7 @@ function TripEditor({
             className="inline-flex min-h-10 items-center gap-2 rounded-[8px] bg-[#273846] px-3 text-sm font-semibold text-white transition hover:bg-[#D86F82]"
             type="button"
             onClick={onSave}
-            disabled={working !== null}
+            disabled={working !== null || dateError}
           >
             {working === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             保存
@@ -519,12 +536,16 @@ function TripEditor({
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <Field label="标题" value={payload.title} onChange={(value) => change({ title: value })} />
-        <Field label="天数" type="number" value={String(payload.days)} onChange={(value) => setDays(Number(value))} />
+        <div className="rounded-[7px] border border-[#D8DDD8] bg-white/50 px-3 py-2">
+          <p className="text-xs font-semibold text-[#5A6670]/48">天数</p>
+          <p className="mt-1 text-sm font-semibold text-[#5A6670]">{dateError ? "请检查日期" : `${payload.days} 天`}</p>
+        </div>
         <Field label="出发地" value={payload.origin} onChange={(value) => change({ origin: value })} />
         <Field label="目的地" value={payload.destination} onChange={(value) => change({ destination: value })} />
-        <Field label="开始日期" value={payload.startDate ?? ""} onChange={(value) => change({ startDate: value })} />
-        <Field label="结束日期" value={payload.endDate ?? ""} onChange={(value) => change({ endDate: value })} />
+        <Field label="开始日期" type="date" value={payload.startDate ?? ""} onChange={(value) => setDate({ startDate: value })} />
+        <Field label="结束日期" type="date" value={payload.endDate ?? ""} onChange={(value) => setDate({ endDate: value })} />
       </div>
+      {dateError ? <p className="mt-2 text-xs font-semibold text-[#D86F82]">结束日期不能早于开始日期，且行程最多 30 天。</p> : null}
 
       <label className="mt-3 block text-xs font-semibold text-[#5A6670]/56">
         行程节奏
@@ -611,7 +632,6 @@ function DayEditor({ day, onChange }: Readonly<{ day: TripDay; onChange: (day: T
 function TripAiDialog({ onClose, onCreated }: Readonly<{ onClose: () => void; onCreated: (draft: TripDraft) => void }>) {
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
-  const [days, setDays] = useState("3");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [preferences, setPreferences] = useState("");
@@ -619,6 +639,8 @@ function TripAiDialog({ onClose, onCreated }: Readonly<{ onClose: () => void; on
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
+  const derivedDays = daysBetweenInclusive(startDate, endDate);
+  const dateError = Boolean(startDate && endDate && !derivedDays);
 
   useEffect(() => {
     if (!job || job.status !== "running") return;
@@ -646,7 +668,7 @@ function TripAiDialog({ onClose, onCreated }: Readonly<{ onClose: () => void; on
     try {
       const data = await apiJson<{ job: AiJob }>("/ai/trip-guide/jobs", {
         method: "POST",
-        body: JSON.stringify({ origin, destination, days: Number(days) || 3, startDate, endDate, preferences }),
+        body: JSON.stringify({ origin, destination, days: derivedDays ?? 3, startDate, endDate, preferences }),
       });
       setJob(data.job);
       const questions = data.job.result?.questions ?? [];
@@ -695,9 +717,12 @@ function TripAiDialog({ onClose, onCreated }: Readonly<{ onClose: () => void; on
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <Field label="出发地" value={origin} onChange={setOrigin} />
             <Field label="目的地" value={destination} onChange={setDestination} />
-            <Field label="天数" type="number" value={days} onChange={setDays} />
-            <Field label="开始日期" value={startDate} onChange={setStartDate} />
-            <Field label="结束日期" value={endDate} onChange={setEndDate} />
+            <Field label="开始日期" type="date" value={startDate} onChange={setStartDate} />
+            <Field label="结束日期" type="date" value={endDate} onChange={setEndDate} />
+            <div className="rounded-[7px] border border-[#D8DDD8] bg-white/50 px-3 py-2">
+              <p className="text-xs font-semibold text-[#5A6670]/48">自动计算天数</p>
+              <p className="mt-1 text-sm font-semibold text-[#5A6670]">{dateError ? "请检查日期" : `${derivedDays ?? 3} 天`}</p>
+            </div>
             <label className="block text-xs font-semibold text-[#5A6670]/56 sm:col-span-2">
               偏好
               <textarea
@@ -711,7 +736,7 @@ function TripAiDialog({ onClose, onCreated }: Readonly<{ onClose: () => void; on
               className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[8px] bg-[#273846] px-4 text-sm font-semibold text-white transition hover:bg-[#D86F82] disabled:opacity-50 sm:col-span-2"
               type="button"
               onClick={createJob}
-              disabled={working || !origin.trim() || !destination.trim()}
+              disabled={working || !origin.trim() || !destination.trim() || dateError}
             >
               {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               生成确认问题
@@ -780,7 +805,7 @@ function Field({
   label: string;
   value: string;
   onChange: (value: string) => void;
-  type?: "text" | "number";
+  type?: "text" | "number" | "date";
 }>) {
   return (
     <label className="block text-xs font-semibold text-[#5A6670]/56">

@@ -9,6 +9,13 @@ import { storeImage } from "../storage.js";
 import type { AuthenticatedRequest } from "../types.js";
 
 const datePattern = /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/;
+const maxTagsPerMemory = 12;
+const maxTagLength = 12;
+
+function normalizeTags(tags: string[] | undefined) {
+  return [...new Set((tags ?? []).map((tag) => tag.trim()).filter(Boolean).map((tag) => tag.slice(0, maxTagLength)))]
+    .slice(0, maxTagsPerMemory);
+}
 
 function normalizeDate(value: string) {
   const match = datePattern.exec(value.trim());
@@ -69,6 +76,7 @@ export async function registerMemoryRoutes(app: FastifyInstance) {
         cityEn: info.nameEn,
         date: normalizedDate,
         text: parsed.data.memory.text.trim(),
+        tags: normalizeTags(parsed.data.memory.tags),
       },
     });
 
@@ -146,6 +154,7 @@ export async function registerMemoryRoutes(app: FastifyInstance) {
           cityEn: info.nameEn,
           date: normalizedDate,
           text: parsed.data.memory.text.trim(),
+          tags: normalizeTags(parsed.data.memory.tags),
         },
       });
 

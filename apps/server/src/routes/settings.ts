@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { auxiliaryKinds } from "@map-of-us/shared";
-import type { AuxiliaryItem } from "@prisma/client";
+import { Prisma, type AuxiliaryItem } from "@prisma/client";
 import { requireAuth } from "../auth.js";
 import { prisma } from "../prisma.js";
 import type { AuthenticatedRequest } from "../types.js";
@@ -48,6 +48,7 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
           date: item.date ?? undefined,
           note: item.note,
           cityId: item.cityId ?? undefined,
+          payload: item.payload ?? undefined,
           createdAt: item.createdAt.toISOString(),
           updatedAt: item.updatedAt.toISOString(),
         })),
@@ -73,6 +74,7 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
       date?: unknown;
       note?: unknown;
       cityId?: unknown;
+      payload?: unknown;
     } | null;
 
     if (
@@ -93,12 +95,14 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
         date: typeof payload.date === "string" ? payload.date : null,
         note: typeof payload.note === "string" ? payload.note : "",
         cityId: typeof payload.cityId === "string" ? payload.cityId : null,
+        payload: payload.payload === undefined ? Prisma.JsonNull : payload.payload as Prisma.InputJsonValue,
       },
       update: {
         title: payload.title,
         date: typeof payload.date === "string" ? payload.date : null,
         note: typeof payload.note === "string" ? payload.note : "",
         cityId: typeof payload.cityId === "string" ? payload.cityId : null,
+        payload: payload.payload === undefined ? Prisma.JsonNull : payload.payload as Prisma.InputJsonValue,
       },
     }).catch(async () =>
       prisma.auxiliaryItem.create({
@@ -109,6 +113,7 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
           date: typeof payload.date === "string" ? payload.date : null,
           note: typeof payload.note === "string" ? payload.note : "",
           cityId: typeof payload.cityId === "string" ? payload.cityId : null,
+          payload: payload.payload === undefined ? Prisma.JsonNull : payload.payload as Prisma.InputJsonValue,
         },
       }),
     );

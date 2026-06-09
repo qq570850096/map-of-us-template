@@ -13,6 +13,7 @@ import {
   Settings,
   Star,
 } from "lucide-react";
+import MobileAppNav from "@/components/MobileAppNav";
 
 const githubUrl = "https://github.com/qq570850096/map-of-us-template";
 
@@ -116,7 +117,7 @@ export function MemoryPageShell({
       <span className="absolute right-[17%] top-[15%] h-2 w-2 bg-[#D6E8F0]" aria-hidden="true" />
       <div className="relative z-10 flex min-h-screen">
         <MemorySidebar active={active} />
-        <section className="memory-page-content min-w-0 flex-1 px-4 py-4 sm:px-10 sm:py-8">
+        <section className="memory-page-content min-w-0 flex-1 px-4 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] pt-4 sm:px-10 sm:py-8 lg:pb-8">
           <div className="mb-5 lg:hidden">
             <div className="flex min-h-12 items-center justify-between gap-3 rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/84 px-3 shadow-[0_10px_26px_rgba(90,102,112,0.08)] backdrop-blur">
               <Link
@@ -156,6 +157,7 @@ export function MemoryPageShell({
             </nav>
           </div>
           {children}
+          <MobileAppNav active={active} />
         </section>
       </div>
     </main>

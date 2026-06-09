@@ -7,6 +7,7 @@ export interface Memory {
   image: string;
   photos?: string[];
   text: string;
+  tags?: string[];
   createdAt?: string;
   draft?: boolean;
 }

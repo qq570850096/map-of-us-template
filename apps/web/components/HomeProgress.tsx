@@ -258,7 +258,7 @@ function WeatherFrame(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function WeatherCard() {
+export function WeatherCard() {
   const [weather, setWeather] = useState<Record<string, WeatherInfo>>({});
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(false);

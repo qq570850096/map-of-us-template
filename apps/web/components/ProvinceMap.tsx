@@ -68,6 +68,9 @@ const colors = {
 
 const spring = { type: "spring" as const, stiffness: 100, damping: 20 };
 const memoryTextMaxLength = 80;
+const maxTagsPerMemory = 12;
+const maxTagLength = 12;
+const presetMemoryTags = ["美食", "纪念日", "酒店", "拍照", "交通", "惊喜"];
 const maxPhotosPerMemory = 24;
 const memoryPhotoMaxDimension = 900;
 const memoryPhotoQuality = 0.52;
@@ -90,6 +93,10 @@ const isDataImageUrl = (url?: string | null): url is string =>
 
 const isBrowserImageUrl = (url?: string | null): url is string =>
   typeof url === "string" && (url.startsWith("data:image/") || url.startsWith("https://"));
+
+const normalizeMemoryTags = (tags: string[]) =>
+  [...new Set(tags.map((tag) => tag.trim()).filter(Boolean).map((tag) => tag.slice(0, maxTagLength)))]
+    .slice(0, maxTagsPerMemory);
 
 const useAdminMode = () => {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -130,6 +137,14 @@ const normalizeMemoryDate = (value: string) => {
 
   return `${rawYear}.${String(month).padStart(2, "0")}.${String(day).padStart(2, "0")}`;
 };
+
+const dotDateToInputDate = (value: string) => {
+  const match = /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/.exec(value);
+  if (!match) return "";
+  return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+};
+
+const inputDateToDotDate = (value: string) => value ? value.replaceAll("-", ".") : "";
 
 const markerLayoutByCity: Record<
   string,
@@ -511,6 +526,14 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
       }),
     [cityAssets, litCityIds, localMemories, mapGeometry.cities],
   );
+  const allMemoryTags = useMemo(
+    () =>
+      normalizeMemoryTags([
+        ...presetMemoryTags,
+        ...Object.values(localMemories).flatMap((items) => items.flatMap((item) => item.tags ?? [])),
+      ]),
+    [localMemories],
+  );
 
   const selectedPoint = mapCities.find((city) => city.id === selectedCityId);
   const cardAnchor = selectedPoint
@@ -768,7 +791,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
   return (
     <div
       ref={frameRef}
-      className={`relative mx-auto aspect-[1120/760] w-[min(100%,1120px)] touch-none overflow-visible ${
+      className={`relative mx-auto aspect-[1120/760] w-[min(100%,1120px)] touch-pan-y overflow-visible lg:touch-none ${
         dragging ? "cursor-grabbing" : "cursor-grab"
       }`}
       onWheel={handleWheel}
@@ -875,7 +898,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
       </div>
 
       <div
-        className="absolute left-3 top-3 z-40 flex items-center gap-2 rounded-[8px] border border-[#D8DDD8]/85 bg-[#FAFBF7]/86 p-2 shadow-[0_10px_28px_rgba(90,102,112,0.08)] backdrop-blur"
+        className="absolute left-2 top-2 z-40 flex items-center gap-1.5 rounded-[8px] border border-[#D8DDD8]/85 bg-[#FAFBF7]/86 p-1.5 shadow-[0_10px_28px_rgba(90,102,112,0.08)] backdrop-blur sm:left-3 sm:top-3 sm:gap-2 sm:p-2"
         onClick={(event) => event.stopPropagation()}
       >
         <button
@@ -908,7 +931,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
       </div>
 
       <aside
-        className="absolute right-0 top-3 z-40 w-[230px] rounded-[8px] border border-[#D8DDD8]/85 bg-[#FAFBF7]/90 p-3 shadow-[0_16px_34px_rgba(90,102,112,0.10)] backdrop-blur"
+        className="absolute inset-x-0 top-[calc(100%+0.75rem)] z-40 rounded-[12px] border border-[#D8DDD8]/85 bg-[#FAFBF7]/92 p-3 shadow-[0_16px_34px_rgba(90,102,112,0.10)] backdrop-blur lg:inset-x-auto lg:right-0 lg:top-3 lg:w-[230px] lg:rounded-[8px]"
         onClick={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
         onPointerMove={(event) => event.stopPropagation()}
@@ -919,7 +942,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
           <h2 className="text-sm font-semibold text-[#5A6670]">城市</h2>
           <span className="text-xs font-medium text-[#5A6670]/54">{provinceCities.length}</span>
         </div>
-        <div className="max-h-[430px] space-y-1 overflow-y-auto pr-1">
+        <div className="flex max-h-[112px] gap-2 overflow-x-auto overflow-y-hidden pb-1 lg:block lg:max-h-[430px] lg:space-y-1 lg:overflow-y-auto lg:pr-1">
           {cityList.map((city) => {
             const lit = litCityIds.has(city.id);
             const selected = city.id === selectedCityId;
@@ -927,7 +950,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
             return (
               <button
                 key={city.id}
-                className={`flex w-full items-center justify-between gap-3 rounded-[7px] px-3 py-2 text-left text-sm transition ${
+                className={`flex min-h-11 min-w-[128px] items-center justify-between gap-3 rounded-[7px] px-3 py-2 text-left text-sm transition lg:w-full ${
                   selected
                     ? "bg-[#F5DCE0] text-[#E8B8C2] shadow-[0_8px_18px_rgba(232,184,194,0.16)]"
                     : "text-[#5A6670]/78 hover:bg-[#D6E8F0]/34"
@@ -959,6 +982,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
           localMemories={localMemories[selectedCity.id] ?? []}
           isLit={litCityIds.has(selectedCity.id)}
           anchor={cardAnchor}
+          tagSuggestions={allMemoryTags}
           isAdmin={isAdmin}
           onClose={() => setSelectedCityId(null)}
           onSave={handleSaveMemory}
@@ -1064,6 +1088,7 @@ function MemoryCard({
   localMemories,
   isLit,
   anchor,
+  tagSuggestions,
   isAdmin,
   onClose,
   onSave,
@@ -1079,6 +1104,7 @@ function MemoryCard({
   localMemories: Memory[];
   isLit: boolean;
   anchor: CardAnchor | null;
+  tagSuggestions: string[];
   isAdmin: boolean;
   onClose: () => void;
   onSave: (cityId: string, memory: Memory) => Promise<void>;
@@ -1109,6 +1135,8 @@ function MemoryCard({
   const [formOpen, setFormOpen] = useState(!isLit && isAdmin);
   const [date, setDate] = useState("");
   const [text, setText] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
   const [photoDrafts, setPhotoDrafts] = useState<PhotoDraft[]>([]);
   const [photoError, setPhotoError] = useState("");
   const [polishSuggestion, setPolishSuggestion] = useState("");
@@ -1152,6 +1180,8 @@ function MemoryCard({
     photoReadTokenRef.current += 1;
     setDate("");
     setText("");
+    setTags([]);
+    setTagInput("");
     setPhotoError("");
     setPolishSuggestion("");
     setPolishError("");
@@ -1177,6 +1207,8 @@ function MemoryCard({
     if (fileInputRef.current) fileInputRef.current.value = "";
     setDate(record.date);
     setText(record.text);
+    setTags(normalizeMemoryTags(record.tags ?? []));
+    setTagInput("");
     setPhotoError("");
     setPolishSuggestion("");
     setPolishError("");
@@ -1210,6 +1242,16 @@ function MemoryCard({
     } finally {
       if (mountedRef.current) setDeletingMemoryId("");
     }
+  };
+
+  const addTag = (value: string) => {
+    const normalized = normalizeMemoryTags([...tags, value]);
+    setTags(normalized);
+    setTagInput("");
+  };
+
+  const removeTag = (value: string) => {
+    setTags((current) => current.filter((tag) => tag !== value));
   };
 
   useEffect(() => {
@@ -1379,6 +1421,7 @@ function MemoryCard({
         image: editingMemory && photos.length === 0 ? editingMemory.image : nextPhotos[0],
         photos: nextPhotos,
         text: trimmedText,
+        tags: normalizeMemoryTags(tags),
         createdAt: editingMemory?.createdAt,
       };
 
@@ -1392,6 +1435,7 @@ function MemoryCard({
         image: photos[0] ?? landmarkImage,
         photos: photos.length > 0 ? photos : [landmarkImage],
         text: trimmedText,
+        tags: normalizeMemoryTags(tags),
       });
       resetForm(true);
       setFormOpen(false);
@@ -1423,10 +1467,10 @@ function MemoryCard({
 
   return (
     <motion.article
-      className={`absolute z-50 overflow-y-auto rounded-[8px] border border-[#D8DDD8] bg-[#FAFBF7]/94 text-[#5A6670] shadow-[0_18px_42px_rgba(90,102,112,0.18)] backdrop-blur ${
+      className={`fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] z-50 max-h-[calc(100dvh-8.5rem)] overflow-y-auto rounded-[16px] border border-[#D8DDD8] bg-[#FAFBF7]/96 p-4 text-[#5A6670] shadow-[0_18px_42px_rgba(90,102,112,0.18)] backdrop-blur lg:absolute lg:inset-x-auto lg:bottom-auto lg:rounded-[8px] ${
         expanded
-          ? "max-h-[min(720px,calc(100vh-92px))] w-[390px] p-6"
-          : "max-h-[min(620px,calc(100vh-110px))] w-[292px] p-5"
+          ? "lg:max-h-[min(720px,calc(100vh-92px))] lg:w-[390px] lg:p-6"
+          : "lg:max-h-[min(620px,calc(100vh-110px))] lg:w-[292px] lg:p-5"
       }`}
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
@@ -1598,6 +1642,18 @@ function MemoryCard({
           <p className="mt-4 text-sm leading-6 text-[#5A6670]/82">
             {memory?.text ?? "写下第一段回忆后，这座城市会被点亮。"}
           </p>
+          {memory?.tags?.length ? (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {memory.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full border border-[#F5DCE0] bg-[#F5DCE0]/38 px-2 py-1 text-[11px] font-semibold text-[#D86F82]"
+                >
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          ) : null}
           {memory && localMemoryIds.has(memory.id) && (
             <div className="mt-4 flex gap-2">
               <button
@@ -1746,9 +1802,9 @@ function MemoryCard({
                 <span className="text-xs font-medium text-[#5A6670]/70">日期</span>
                 <input
                   className="mt-1.5 w-full rounded-[6px] border border-[#D8DDD8] bg-[#FAFBF7] px-3 py-2 text-sm text-[#5A6670] placeholder:text-[#5A6670]/40 outline-none transition focus:border-[#E8B8C2]"
-                  type="text"
-                  value={date}
-                  onChange={(event) => setDate(event.target.value)}
+                  type="date"
+                  value={dotDateToInputDate(date)}
+                  onChange={(event) => setDate(inputDateToDotDate(event.target.value))}
                   placeholder="2024.05.20"
                   inputMode="numeric"
                   maxLength={10}
@@ -1783,6 +1839,53 @@ function MemoryCard({
                   disabled={!isAdmin}
                 />
               </label>
+
+              <div>
+                <span className="text-xs font-medium text-[#5A6670]/70">回忆标签</span>
+                <div className="mt-1.5 flex min-h-11 flex-wrap items-center gap-2 rounded-[7px] border border-[#D8DDD8] bg-[#FAFBF7] px-2 py-2">
+                  {tags.map((tag) => (
+                    <button
+                      key={tag}
+                      className="rounded-full border border-[#F5DCE0] bg-[#F5DCE0]/48 px-2.5 py-1 text-xs font-semibold text-[#D86F82]"
+                      type="button"
+                      onClick={() => removeTag(tag)}
+                      disabled={!isAdmin}
+                      aria-label={`移除标签 ${tag}`}
+                    >
+                      #{tag} ×
+                    </button>
+                  ))}
+                  <input
+                    className="min-h-8 min-w-[96px] flex-1 bg-transparent px-1 text-sm text-[#5A6670] outline-none placeholder:text-[#5A6670]/36"
+                    value={tagInput}
+                    onChange={(event) => setTagInput(event.target.value.slice(0, maxTagLength))}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === "，" || event.key === ",") {
+                        event.preventDefault();
+                        addTag(tagInput);
+                      }
+                    }}
+                    placeholder="输入后回车"
+                    disabled={!isAdmin || tags.length >= maxTagsPerMemory}
+                  />
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {tagSuggestions
+                    .filter((tag) => !tags.includes(tag))
+                    .slice(0, 8)
+                    .map((tag) => (
+                      <button
+                        key={tag}
+                        className="rounded-full border border-[#D8DDD8] bg-white/42 px-2.5 py-1 text-[11px] font-semibold text-[#5A6670]/58 transition hover:border-[#F5DCE0] hover:text-[#D86F82]"
+                        type="button"
+                        onClick={() => addTag(tag)}
+                        disabled={!isAdmin || tags.length >= maxTagsPerMemory}
+                      >
+                        + {tag}
+                      </button>
+                    ))}
+                </div>
+              </div>
 
               <div className="space-y-2">
                 <button
@@ -1887,7 +1990,7 @@ function MemoryCard({
                 )}
               </div>
 
-              <div className="sticky bottom-0 -mx-5 flex items-center gap-2 border-t border-[#D8DDD8]/70 bg-[#FAFBF7]/96 px-5 pb-1 pt-3 shadow-[0_-10px_18px_rgba(250,251,247,0.88)] backdrop-blur">
+              <div className="sticky bottom-0 -mx-4 flex items-center gap-2 border-t border-[#D8DDD8]/70 bg-[#FAFBF7]/96 px-4 pb-1 pt-3 shadow-[0_-10px_18px_rgba(250,251,247,0.88)] backdrop-blur lg:-mx-5 lg:px-5">
                 <button
                   className="flex-1 rounded-[6px] bg-[#F5DCE0] px-3 py-2 text-sm font-medium text-[#E8B8C2] transition hover:bg-[#E8B8C2] hover:text-[#FAFBF7] disabled:cursor-not-allowed disabled:opacity-45"
                   type="button"

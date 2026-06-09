@@ -13,6 +13,36 @@ type TripPlanRow = {
   updatedAt: Date;
 };
 
+function daysBetweenInclusive(startDate?: string, endDate?: string) {
+  if (!startDate || !endDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return null;
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return null;
+  const days = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+  return days > 0 && days <= 30 ? days : null;
+}
+
+function normalizeTripPayload(payload: unknown) {
+  const parsed = tripGuidePayloadSchema.safeParse(payload);
+  if (!parsed.success) return parsed;
+  const days = daysBetweenInclusive(parsed.data.startDate, parsed.data.endDate);
+  if (!days || days === parsed.data.days) return parsed;
+  return tripGuidePayloadSchema.safeParse({
+    ...parsed.data,
+    days,
+    daysPlan: Array.from({ length: days }, (_, index) => parsed.data.daysPlan[index] ?? {
+      day: index + 1,
+      title: `第 ${index + 1} 天`,
+      theme: "",
+      morning: [],
+      afternoon: [],
+      evening: [],
+      checkpoints: [],
+      food: [],
+    }),
+  });
+}
+
 function serializeTripPlan(plan: TripPlanRow) {
   return {
     id: plan.id,
@@ -70,7 +100,7 @@ export async function registerTripGuideRoutes(app: FastifyInstance) {
 
   app.post("/trip-guides", { preHandler: requireAuth }, async (request, reply) => {
     const auth = (request as AuthenticatedRequest).auth;
-    const parsed = tripGuidePayloadSchema.safeParse((request.body as { payload?: unknown } | null)?.payload ?? request.body);
+    const parsed = normalizeTripPayload((request.body as { payload?: unknown } | null)?.payload ?? request.body);
     if (!parsed.success) return reply.code(400).send({ error: "Invalid trip guide payload" });
 
     const plan = await prisma.tripPlan.create({
@@ -89,7 +119,7 @@ export async function registerTripGuideRoutes(app: FastifyInstance) {
     const existing = await prisma.tripPlan.findFirst({ where: { id, spaceId: auth.spaceId } });
     if (!existing) return reply.code(404).send({ error: "Trip guide not found" });
 
-    const parsed = tripGuidePayloadSchema.safeParse((request.body as { payload?: unknown } | null)?.payload ?? request.body);
+    const parsed = normalizeTripPayload((request.body as { payload?: unknown } | null)?.payload ?? request.body);
     if (!parsed.success) return reply.code(400).send({ error: "Invalid trip guide payload" });
 
     const plan = await prisma.tripPlan.update({
@@ -117,7 +147,7 @@ export async function registerTripGuideRoutes(app: FastifyInstance) {
     });
     if (!existing) return reply.code(404).send({ error: "Trip guide draft not found" });
 
-    const parsed = tripGuidePayloadSchema.safeParse((request.body as { payload?: unknown } | null)?.payload ?? request.body);
+    const parsed = normalizeTripPayload((request.body as { payload?: unknown } | null)?.payload ?? request.body);
     if (!parsed.success) return reply.code(400).send({ error: "Invalid trip guide draft payload" });
 
     const draft = await prisma.aiDraft.update({
@@ -135,7 +165,7 @@ export async function registerTripGuideRoutes(app: FastifyInstance) {
     });
     if (!draft) return reply.code(404).send({ error: "Trip guide draft not found" });
 
-    const parsed = tripGuidePayloadSchema.safeParse(draft.payload);
+    const parsed = normalizeTripPayload(draft.payload);
     if (!parsed.success) return reply.code(400).send({ error: "Invalid trip guide draft payload" });
 
     const plan = await prisma.tripPlan.create({

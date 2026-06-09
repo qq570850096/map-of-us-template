@@ -11,6 +11,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function normalizeTags(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((tag): tag is string => typeof tag === "string").map((tag) => tag.trim()).filter(Boolean))]
+    .map((tag) => tag.slice(0, 12))
+    .slice(0, 12);
+}
+
 export async function registerBackupRoutes(app: FastifyInstance) {
   app.post("/backup/import", { preHandler: requireAuth }, async (request, reply) => {
     const auth = (request as AuthenticatedRequest).auth;
@@ -36,6 +43,7 @@ export async function registerBackupRoutes(app: FastifyInstance) {
               cityEn: info.nameEn,
               date: typeof entry.date === "string" ? entry.date : "待添加日期",
               text: typeof entry.text === "string" ? entry.text : "",
+              tags: normalizeTags(entry.tags),
             },
           });
           const photos = Array.isArray(entry.photos)
