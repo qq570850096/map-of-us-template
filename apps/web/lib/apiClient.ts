@@ -17,6 +17,18 @@ type ApiOptions = RequestInit & {
   retry?: boolean;
 };
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly path: string;
+
+  constructor(path: string, status: number, message: string) {
+    super(`API ${path} failed (${status}): ${message}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.path = path;
+  }
+}
+
 function makeHeaders(headers?: HeadersInit, auth = true, body?: BodyInit | null) {
   const next = new Headers(headers);
   if (!next.has("Content-Type") && !(body instanceof FormData)) {
@@ -63,7 +75,7 @@ export async function apiJson<T>(path: string, options: ApiOptions = {}) {
   if (!response.ok) {
     const data = (await response.json().catch(() => null)) as { error?: unknown } | null;
     const message = typeof data?.error === "string" ? data.error : response.statusText;
-    throw new Error(`API ${path} failed (${response.status}): ${message}`);
+    throw new ApiError(path, response.status, message);
   }
   return (await response.json()) as T;
 }

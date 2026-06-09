@@ -1,3 +1,5 @@
+import { writeAdminMode } from "@/data/adminMode";
+
 type StoredSession = {
   accessToken: string;
   refreshToken: string;
@@ -46,7 +48,7 @@ export function writeSession(session: StoredSession) {
 export function clearSession() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(sessionKey);
-  window.sessionStorage.removeItem("mapofus:admin-unlocked");
+  writeAdminMode(false);
 }
 
 export function updateAccessToken(accessToken: string) {

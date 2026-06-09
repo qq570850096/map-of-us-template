@@ -18,6 +18,12 @@ export type LoginPhotoText = {
   label?: string;
 };
 
+export type AppSettingsSaveResult = {
+  settings: AppSettings;
+  synced: boolean;
+  error?: string;
+};
+
 export const defaultAnniversaryDate = "2025.01.01";
 export const defaultAnniversaryLabel = "我们在一起";
 export const defaultWeatherCityIds = ["beijing", "shanghai", "guangzhou"];
@@ -104,13 +110,30 @@ export const writeAppSettings = (settings: AppSettings) => {
 
 export const saveAppSettings = async (settings: AppSettings) => {
   const normalized = normalizeAppSettings(settings);
-  if (!readSession()) return writeLocalAppSettings(normalized);
+  if (!readSession()) {
+    return {
+      settings: writeLocalAppSettings(normalized),
+      synced: false,
+    } satisfies AppSettingsSaveResult;
+  }
 
-  const data = await apiJson<{ settings: AppSettings }>("/settings", {
-    method: "PUT",
-    body: JSON.stringify({ settings: normalized }),
-  });
-  return writeLocalAppSettings(data.settings);
+  const localSettings = writeLocalAppSettings(normalized);
+  try {
+    const data = await apiJson<{ settings: AppSettings }>("/settings", {
+      method: "PUT",
+      body: JSON.stringify({ settings: normalized }),
+    });
+    return {
+      settings: writeLocalAppSettings(data.settings),
+      synced: true,
+    } satisfies AppSettingsSaveResult;
+  } catch (error) {
+    return {
+      settings: localSettings,
+      synced: false,
+      error: error instanceof Error ? error.message : "Settings sync failed",
+    } satisfies AppSettingsSaveResult;
+  }
 };
 
 export const syncAppSettings = async () => {

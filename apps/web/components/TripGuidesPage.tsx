@@ -14,7 +14,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { MemoryPageShell } from "@/components/MemoryNav";
-import { apiJson } from "@/lib/apiClient";
+import { ApiError, apiJson } from "@/lib/apiClient";
+import { readSession } from "@/lib/authStore";
 
 type TravelStyle = "relaxed" | "balanced" | "packed";
 type JobStatus = "queued" | "running" | "needs_confirmation" | "completed" | "failed";
@@ -234,7 +235,16 @@ function updateArray<T>(items: T[], index: number, value: T) {
 }
 
 function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message.replace(/^API [^:]+:\s*/, "") : fallback;
+  if (error instanceof ApiError) {
+    if (error.status === 401) return "登录已过期，请先到设置页重新进入管理员模式。";
+    if (error.status === 403) return "当前账号没有权限，请使用管理员账号登录。";
+    return error.message.replace(/^API .* failed \(\d+\):\s*/, "");
+  }
+  return error instanceof Error ? error.message.replace(/^API .* failed \(\d+\):\s*/, "") : fallback;
+}
+
+function requireSessionMessage() {
+  return readSession() ? "" : "请先到设置页进入管理员模式，再生成、保存或删除旅行攻略。";
 }
 
 export default function TripGuidesPage() {
@@ -298,6 +308,11 @@ export default function TripGuidesPage() {
   const setPayload = (payload: TripPayload) => setSelected((current) => ({ ...current, payload: normalizePayload(payload) }));
 
   const save = async () => {
+    const authMessage = requireSessionMessage();
+    if (authMessage) {
+      setStatus(authMessage);
+      return;
+    }
     const payload = payloadForSave(selected.payload);
     if (!payload.title.trim()) {
       setStatus("标题不能为空。");
@@ -336,6 +351,11 @@ export default function TripGuidesPage() {
 
   const acceptDraft = async () => {
     if (selected.kind !== "draft") return;
+    const authMessage = requireSessionMessage();
+    if (authMessage) {
+      setStatus(authMessage);
+      return;
+    }
     setWorking("accept");
     setStatus("");
     try {
@@ -353,6 +373,11 @@ export default function TripGuidesPage() {
   const remove = async () => {
     if (selected.kind === "new") {
       setSelected({ kind: "new", id: "new", payload: emptyPayload() });
+      return;
+    }
+    const authMessage = requireSessionMessage();
+    if (authMessage) {
+      setStatus(authMessage);
       return;
     }
     setWorking("delete");
@@ -650,7 +675,10 @@ function TripAiDialog({ onClose, onCreated }: Readonly<{ onClose: () => void; on
   useEffect(() => {
     if (!runningJobId) return;
     const poll = async () => {
-      const data = await apiJson<{ job: AiJob }>(`/ai/trip-guide/jobs/${runningJobId}`).catch(() => null);
+      const data = await apiJson<{ job: AiJob }>(`/ai/trip-guide/jobs/${runningJobId}`).catch((error) => {
+        setError(errorMessage(error, "AI 任务状态获取失败，请稍后重试。"));
+        return null;
+      });
       if (!data?.job) return;
       setJob(data.job);
       if (data.job.status === "completed") {
@@ -668,6 +696,11 @@ function TripAiDialog({ onClose, onCreated }: Readonly<{ onClose: () => void; on
 
   const createJob = async () => {
     if (!origin.trim() || !destination.trim()) return;
+    const authMessage = requireSessionMessage();
+    if (authMessage) {
+      setError(authMessage);
+      return;
+    }
     setWorking(true);
     setError("");
     try {
@@ -687,6 +720,11 @@ function TripAiDialog({ onClose, onCreated }: Readonly<{ onClose: () => void; on
 
   const confirm = async () => {
     if (!job) return;
+    const authMessage = requireSessionMessage();
+    if (authMessage) {
+      setError(authMessage);
+      return;
+    }
     setWorking(true);
     setError("");
     try {

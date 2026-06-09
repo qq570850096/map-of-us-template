@@ -916,14 +916,24 @@ export function SettingsPage() {
     setStatus("");
 
     try {
-      const saved = await saveAppSettings(next);
-      setAppSettings(saved);
-      setBasicSettingsDraft(saved);
-      setBasicSettingsStatus(willSyncServer ? "基础设置已保存并同步到服务器。" : "基础设置已保存到本机。");
-      setStatus(willSyncServer ? "基础设置已保存并同步到服务器" : "基础设置已保存到本机");
+      const result = await saveAppSettings(next);
+      setAppSettings(result.settings);
+      setBasicSettingsDraft(result.settings);
+      if (result.synced) {
+        setBasicSettingsStatus("基础设置已保存并同步到服务器。");
+        setStatus("基础设置已保存并同步到服务器");
+      } else if (willSyncServer) {
+        const sessionExpired = !readSession();
+        const reason = sessionExpired ? "登录已过期" : "服务器同步失败";
+        setBasicSettingsStatus(`基础设置已保存到本机，但${reason}。请重新进入管理员模式后再同步服务器。`);
+        setStatus(`基础设置已保存到本机，但${reason}`);
+      } else {
+        setBasicSettingsStatus("基础设置已保存到本机。进入管理员模式后可同步到服务器。");
+        setStatus("基础设置已保存到本机");
+      }
     } catch {
-      setBasicSettingsStatus("基础设置保存失败：服务器没有确认保存，请检查登录状态和网络后重试。");
-      setStatus("基础设置保存失败，请检查网络后重试");
+      setBasicSettingsStatus("基础设置保存失败：本机浏览器存储不可用，请检查存储权限后重试。");
+      setStatus("基础设置保存失败，本机存储不可用");
     } finally {
       setIsSavingBasicSettings(false);
     }
