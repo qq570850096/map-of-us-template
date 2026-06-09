@@ -1,0 +1,68 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "Backend API base URL baked into the static web app"
+        required: false
+        default: "https://lylwithgwy.zeabur.app"
+  push:
+    branches:
+      - codex/frontend-backend-split
+  pull_request:
+    branches:
+      - codex/frontend-backend-split
+
+jobs:
+  build-debug-apk:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.NEXT_PUBLIC_API_BASE_URL || 'https://lylwithgwy.zeabur.app' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared package
+        run: npm run build:shared
+
+      - name: Build static web app
+        run: npm run build -w @map-of-us/web
+
+      - name: Sync Capacitor Android project
+        run: npx capacitor sync android
+        working-directory: apps/mobile
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x apps/mobile/android/gradlew
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
+        working-directory: apps/mobile/android
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: map-of-us-debug-apk
+          path: apps/mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

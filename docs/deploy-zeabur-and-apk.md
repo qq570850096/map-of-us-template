@@ -83,3 +83,24 @@ Requirements for local APK builds:
 
 If those tools are missing, `npm run mobile:android:sync` still verifies the web
 assets and Capacitor Android project sync, but Gradle cannot produce an APK.
+
+## GitHub Actions APK Build
+
+This repository includes `.github/workflows/build-android-apk.yml`.
+
+It builds a debug APK on pushes and pull requests to
+`codex/frontend-backend-split`, and can also be run manually from:
+
+```text
+GitHub -> Actions -> Build Android APK -> Run workflow
+```
+
+The workflow bakes `NEXT_PUBLIC_API_BASE_URL` into the static frontend before
+Capacitor syncs the Android project. The URL is selected in this order:
+
+1. Manual workflow input `api_base_url`
+2. Repository variable `NEXT_PUBLIC_API_BASE_URL`
+3. Default `https://lylwithgwy.zeabur.app`
+
+After the workflow finishes, download the APK from the
+`map-of-us-debug-apk` artifact.
