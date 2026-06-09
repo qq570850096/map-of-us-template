@@ -52,25 +52,46 @@ export async function callAstrBotStream({
   return response;
 }
 
-function extractTextFromSseData(data: string) {
-  if (!data || data === "[DONE]") return "";
+type AstrBotSseText =
+  | { kind: "delta"; text: string }
+  | { kind: "complete"; text: string };
+
+function stringFromData(value: unknown) {
+  if (typeof value === "string") return value;
+  if (typeof value !== "object" || value === null) return "";
+  const record = value as Record<string, unknown>;
+  if (typeof record.text === "string") return record.text;
+  if (typeof record.content === "string") return record.content;
+  if (typeof record.message === "string") return record.message;
+  return "";
+}
+
+function extractTextFromSseData(data: string): AstrBotSseText | null {
+  if (!data || data === "[DONE]") return null;
   try {
     const parsed = JSON.parse(data) as unknown;
-    if (typeof parsed === "string") return parsed;
-    if (typeof parsed !== "object" || parsed === null) return "";
+    if (typeof parsed === "string") return { kind: "delta", text: parsed };
+    if (typeof parsed !== "object" || parsed === null) return null;
     const record = parsed as Record<string, unknown>;
-    for (const key of ["text", "content", "message", "delta"]) {
-      if (typeof record[key] === "string") return record[key] as string;
+
+    const eventType = typeof record.type === "string" ? record.type : "";
+    if (eventType === "plain") {
+      const text = stringFromData(record.data) || stringFromData(record);
+      return text ? { kind: "delta", text } : null;
     }
-    if (typeof record.data === "string") return record.data;
-    if (typeof record.data === "object" && record.data !== null) {
-      const dataRecord = record.data as Record<string, unknown>;
-      if (typeof dataRecord.text === "string") return dataRecord.text;
-      if (typeof dataRecord.content === "string") return dataRecord.content;
+    if (eventType === "complete") {
+      const text = stringFromData(record.data) || stringFromData(record);
+      return text ? { kind: "complete", text } : null;
     }
-    return "";
+    if (eventType) return null;
+
+    for (const key of ["delta", "text", "content", "message"]) {
+      if (typeof record[key] === "string") return { kind: "delta", text: record[key] as string };
+    }
+    const text = stringFromData(record.data);
+    return text ? { kind: "delta", text } : null;
   } catch {
-    return data;
+    return { kind: "delta", text: data };
   }
 }
 
@@ -85,6 +106,18 @@ export async function callAstrBotText(input: {
   const decoder = new TextDecoder();
   let buffer = "";
   let output = "";
+  let completeOutput = "";
+
+  const collectLine = (line: string) => {
+    if (!line.startsWith("data:")) return;
+    const extracted = extractTextFromSseData(line.slice(5).trim());
+    if (!extracted) return;
+    if (extracted.kind === "complete") {
+      completeOutput = extracted.text;
+      return;
+    }
+    output += extracted.text;
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -94,16 +127,16 @@ export async function callAstrBotText(input: {
     buffer = chunks.pop() ?? "";
     for (const chunk of chunks) {
       for (const line of chunk.split(/\r?\n/)) {
-        if (line.startsWith("data:")) output += extractTextFromSseData(line.slice(5).trim());
+        collectLine(line);
       }
     }
   }
 
   if (buffer) {
     for (const line of buffer.split(/\r?\n/)) {
-      if (line.startsWith("data:")) output += extractTextFromSseData(line.slice(5).trim());
+      collectLine(line);
     }
   }
 
-  return output.trim();
+  return (output || completeOutput).trim();
 }
