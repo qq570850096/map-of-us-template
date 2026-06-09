@@ -129,7 +129,7 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
     [localMemories],
   );
 
-  const paths = useMemo(() => {
+  const mapPaths = useMemo(() => {
     const projection = makeProjection(width, height, 24);
     const path = makePath(projection);
 
@@ -143,12 +143,11 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
         x: stableCoordinate(cx),
         y: stableCoordinate(cy),
         province: provinceById.get(id),
-        lit: litProvinceIds.has(id),
       };
     });
-  }, [height, litProvinceIds, width]);
+  }, [height, width]);
 
-  const hoveredPath = paths.find((path) => path.id === hoveredId);
+  const hoveredPath = mapPaths.find((path) => path.id === hoveredId);
   const zoomProgress = ((zoom - minZoom) / (maxZoom - minZoom)) * 100;
   const setClampedZoom = (nextZoom: number) => {
     setZoom(Math.min(Math.max(nextZoom, minZoom), maxZoom));
@@ -242,36 +241,41 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
             </defs>
 
             <g shapeRendering="geometricPrecision">
-              {paths.map((path) => (
-                <path
-                  key={`${path.id}-glow`}
-                  d={path.d}
-                  fill="none"
-                  stroke={path.lit ? colors.bloom : "transparent"}
-                  strokeWidth={path.lit ? 10 : 0}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity={path.lit ? 0.18 : 0}
-                  filter={path.lit ? "url(#visitedGlow)" : undefined}
-                  pointerEvents="none"
-                />
-              ))}
+              {mapPaths.map((path) => {
+                const lit = litProvinceIds.has(path.id);
 
-              {paths.map((path) => {
+                return (
+                  <path
+                    key={`${path.id}-glow`}
+                    d={path.d}
+                    fill="none"
+                    stroke={lit ? colors.bloom : "transparent"}
+                    strokeWidth={lit ? 10 : 0}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity={lit ? 0.18 : 0}
+                    filter={lit ? "url(#visitedGlow)" : undefined}
+                    pointerEvents="none"
+                  />
+                );
+              })}
+
+              {mapPaths.map((path) => {
                 const isHovered = hoveredId === path.id;
+                const lit = litProvinceIds.has(path.id);
 
                 return (
                   <path
                     key={path.id}
                     d={path.d}
-                    fill={path.lit ? colors.sakura : colors.dim}
-                    fillOpacity={path.lit ? 0.68 : 0.34}
-                    stroke={path.lit ? colors.bloom : colors.ink}
-                    strokeOpacity={path.lit ? 0.95 : 0.24}
-                    strokeWidth={path.lit ? 2.2 : 1.25}
+                    fill={lit ? colors.sakura : colors.dim}
+                    fillOpacity={lit ? 0.68 : 0.34}
+                    stroke={lit ? colors.bloom : colors.ink}
+                    strokeOpacity={lit ? 0.95 : 0.24}
+                    strokeWidth={lit ? 2.2 : 1.25}
                     strokeLinejoin="round"
                     className="cursor-pointer transition-all duration-300"
-                    filter={path.lit || isHovered ? "url(#visitedGlow)" : undefined}
+                    filter={lit || isHovered ? "url(#visitedGlow)" : undefined}
                     onMouseEnter={() => setHoveredId(path.id)}
                     onMouseLeave={() =>
                       setHoveredId((current) => (current === path.id ? null : current))
@@ -281,7 +285,7 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
                 );
               })}
 
-              {paths
+              {mapPaths
                 .filter((path) => easyTapProvinceIds.has(path.id))
                 .map((path) => (
                   <g key={`${path.id}-easy-tap`}>
@@ -312,8 +316,8 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
                   </g>
                 ))}
 
-              {paths.map((path) =>
-                path.lit ? (
+              {mapPaths.map((path) =>
+                litProvinceIds.has(path.id) ? (
                   <path
                     key={`${path.id}-inner`}
                     d={path.d}

@@ -465,7 +465,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     };
   }, [width]);
 
-  const mapData = useMemo(() => {
+  const mapGeometry = useMemo(() => {
     const projection = makeProjectionForProvince(province.id, width, height, 88);
     const path = makePath(projection);
     const cityPoint = (city: Pick<City, "lng" | "lat">) => {
@@ -482,6 +482,19 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
       })),
       cities: provinceCities.map((city) => {
         const [x, y] = cityPoint(city);
+
+        return {
+          city,
+          x,
+          y,
+        };
+      }),
+    };
+  }, [height, province.id, provinceCities, width]);
+
+  const mapCities = useMemo(
+    () =>
+      mapGeometry.cities.map(({ city, x, y }) => {
         const localMemory = localMemories[city.id]?.[0];
         const lit = litCityIds.has(city.id);
         const customSprite = cityAssets[city.id];
@@ -496,10 +509,10 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
           memory: localMemory ?? (lit ? getLatestMemory(city.id) : undefined),
         };
       }),
-    };
-  }, [cityAssets, height, litCityIds, localMemories, province.id, provinceCities, width]);
+    [cityAssets, litCityIds, localMemories, mapGeometry.cities],
+  );
 
-  const selectedPoint = mapData.cities.find((city) => city.id === selectedCityId);
+  const selectedPoint = mapCities.find((city) => city.id === selectedCityId);
   const cardAnchor = selectedPoint
     ? (() => {
         const renderedWidth = width * frameScale;
@@ -635,8 +648,8 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     setCityAssets(data.assets);
   };
 
-  const focusCity = (city: Pick<City, "id" | "lng" | "lat">) => {
-    const point = mapData.cities.find((candidate) => candidate.id === city.id);
+  const focusCity = (city: Pick<City, "id">) => {
+    const point = mapGeometry.cities.find((candidate) => candidate.city.id === city.id);
     if (!point) return;
 
     const scale = clampZoom(Math.max(cameraRef.current.scale, 1.62));
@@ -676,7 +689,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     return () => window.clearTimeout(timer);
     // Run after city coordinates are projected so deep links can focus the map.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapData.cities, provinceCities]);
+  }, [mapGeometry.cities, provinceCities]);
 
   const zoomAt = (clientX: number, clientY: number, delta: number) => {
     const frame = frameRef.current;
@@ -809,7 +822,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
               </filter>
             </defs>
 
-            {mapData.paths.map((path) => (
+            {mapGeometry.paths.map((path) => (
               <path
                 key={path.id}
                 d={path.d}
@@ -825,7 +838,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
 
           </svg>
 
-          {mapData.cities.map((city) => {
+          {mapCities.map((city) => {
             const selected = city.id === selectedCityId;
             const faded = selectedCityId && !selected;
             const nudged = nudgedCityId === city.id;
