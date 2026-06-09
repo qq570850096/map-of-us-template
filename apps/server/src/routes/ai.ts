@@ -444,6 +444,7 @@ async function runTripGuideJob(jobId: string) {
   if (!job) return;
 
   try {
+    console.info(`[ai:trip-guide] starting job ${job.id}`);
     await prisma.aiJob.update({ where: { id: job.id }, data: { status: "running", error: null } });
     const input = normalizeTripGuideInput(job.input as JsonRecord);
     const raw = await callAstrBotText({
@@ -478,7 +479,9 @@ async function runTripGuideJob(jobId: string) {
         error: null,
       },
     });
+    console.info(`[ai:trip-guide] completed job ${job.id}`);
   } catch (error) {
+    console.error(`[ai:trip-guide] failed job ${job.id}`, error);
     await prisma.aiJob.update({
       where: { id: job.id },
       data: {
@@ -489,8 +492,19 @@ async function runTripGuideJob(jobId: string) {
   }
 }
 
+const runningTripGuideJobs = new Set<string>();
+
+function startTripGuideJob(jobId: string) {
+  if (runningTripGuideJobs.has(jobId)) return;
+  runningTripGuideJobs.add(jobId);
+  void runTripGuideJob(jobId).finally(() => {
+    runningTripGuideJobs.delete(jobId);
+  });
+}
+
 async function readTripGuideConfirmation(input: TripGuideInput, auth: { spaceId: string; userId: string }) {
   try {
+    console.info(`[ai:trip-guide] requesting confirmation for ${auth.spaceId}:${auth.userId}`);
     const raw = await callAstrBotText({
       username: astrBotUsername(auth.spaceId, auth.userId),
       sessionId: `trip-guide-confirm:${auth.spaceId}:${auth.userId}`,
@@ -508,7 +522,8 @@ async function readTripGuideConfirmation(input: TripGuideInput, auth: { spaceId:
       : [];
     if (json?.status === "ready" && questions.length === 0) return { status: "ready" as const, normalizedInput, questions: [] };
     return { status: "needs_confirmation" as const, normalizedInput, questions: questions.slice(0, 3) };
-  } catch {
+  } catch (error) {
+    console.error("[ai:trip-guide] confirmation failed, using local questions", error);
     const questions = localTripGuideQuestions(input);
     return {
       status: questions.length ? "needs_confirmation" as const : "ready" as const,
@@ -653,7 +668,7 @@ export async function registerAiRoutes(app: FastifyInstance) {
       },
     });
 
-    if (confirmation.status === "ready") void runTripGuideJob(job.id);
+    if (confirmation.status === "ready") startTripGuideJob(job.id);
     return { job: serializeJob(job) };
   });
 
@@ -662,6 +677,7 @@ export async function registerAiRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const job = await prisma.aiJob.findFirst({ where: { id, spaceId: auth.spaceId, type: "trip_plan" } });
     if (!job) return reply.code(404).send({ error: "Trip guide job not found" });
+    if (job.status === "queued" || job.status === "running") startTripGuideJob(job.id);
     return { job: serializeJob(job) };
   });
 
@@ -684,7 +700,7 @@ export async function registerAiRoutes(app: FastifyInstance) {
         error: null,
       },
     });
-    void runTripGuideJob(job.id);
+    startTripGuideJob(job.id);
     return { job: serializeJob(updated) };
   });
 

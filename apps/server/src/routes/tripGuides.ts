@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { Prisma } from "@prisma/client";
 import { tripGuidePayloadSchema } from "@map-of-us/shared";
 import { requireAuth } from "../auth.js";
@@ -41,6 +41,12 @@ function normalizeTripPayload(payload: unknown) {
       food: [],
     }),
   });
+}
+
+function invalidTripPayload(reply: FastifyReply, parsed: ReturnType<typeof normalizeTripPayload>) {
+  if (parsed.success) return null;
+  const message = parsed.error.issues.map((issue) => `${issue.path.join(".") || "payload"}: ${issue.message}`).join("; ");
+  return reply.code(400).send({ error: `Invalid trip guide payload: ${message}` });
 }
 
 function serializeTripPlan(plan: TripPlanRow) {
@@ -101,7 +107,7 @@ export async function registerTripGuideRoutes(app: FastifyInstance) {
   app.post("/trip-guides", { preHandler: requireAuth }, async (request, reply) => {
     const auth = (request as AuthenticatedRequest).auth;
     const parsed = normalizeTripPayload((request.body as { payload?: unknown } | null)?.payload ?? request.body);
-    if (!parsed.success) return reply.code(400).send({ error: "Invalid trip guide payload" });
+    if (!parsed.success) return invalidTripPayload(reply, parsed);
 
     const plan = await prisma.tripPlan.create({
       data: {
@@ -120,7 +126,7 @@ export async function registerTripGuideRoutes(app: FastifyInstance) {
     if (!existing) return reply.code(404).send({ error: "Trip guide not found" });
 
     const parsed = normalizeTripPayload((request.body as { payload?: unknown } | null)?.payload ?? request.body);
-    if (!parsed.success) return reply.code(400).send({ error: "Invalid trip guide payload" });
+    if (!parsed.success) return invalidTripPayload(reply, parsed);
 
     const plan = await prisma.tripPlan.update({
       where: { id: existing.id },
@@ -132,10 +138,11 @@ export async function registerTripGuideRoutes(app: FastifyInstance) {
     return { guide: serializeTripPlan(plan) };
   });
 
-  app.delete("/trip-guides/:id", { preHandler: requireAuth }, async (request) => {
+  app.delete("/trip-guides/:id", { preHandler: requireAuth }, async (request, reply) => {
     const auth = (request as AuthenticatedRequest).auth;
     const { id } = request.params as { id: string };
-    await prisma.tripPlan.deleteMany({ where: { id, spaceId: auth.spaceId } });
+    const result = await prisma.tripPlan.deleteMany({ where: { id, spaceId: auth.spaceId } });
+    if (result.count === 0) return reply.code(404).send({ error: "Trip guide not found" });
     return { ok: true };
   });
 
@@ -148,7 +155,7 @@ export async function registerTripGuideRoutes(app: FastifyInstance) {
     if (!existing) return reply.code(404).send({ error: "Trip guide draft not found" });
 
     const parsed = normalizeTripPayload((request.body as { payload?: unknown } | null)?.payload ?? request.body);
-    if (!parsed.success) return reply.code(400).send({ error: "Invalid trip guide draft payload" });
+    if (!parsed.success) return invalidTripPayload(reply, parsed);
 
     const draft = await prisma.aiDraft.update({
       where: { id: existing.id },
@@ -166,7 +173,7 @@ export async function registerTripGuideRoutes(app: FastifyInstance) {
     if (!draft) return reply.code(404).send({ error: "Trip guide draft not found" });
 
     const parsed = normalizeTripPayload(draft.payload);
-    if (!parsed.success) return reply.code(400).send({ error: "Invalid trip guide draft payload" });
+    if (!parsed.success) return invalidTripPayload(reply, parsed);
 
     const plan = await prisma.tripPlan.create({
       data: {
@@ -179,13 +186,14 @@ export async function registerTripGuideRoutes(app: FastifyInstance) {
     return { ok: true, guide: serializeTripPlan(plan) };
   });
 
-  app.delete("/trip-guide-drafts/:id", { preHandler: requireAuth }, async (request) => {
+  app.delete("/trip-guide-drafts/:id", { preHandler: requireAuth }, async (request, reply) => {
     const auth = (request as AuthenticatedRequest).auth;
     const { id } = request.params as { id: string };
-    await prisma.aiDraft.updateMany({
+    const result = await prisma.aiDraft.updateMany({
       where: { id, spaceId: auth.spaceId, kind: "trip_plan", status: "draft" },
       data: { status: "rejected" },
     });
+    if (result.count === 0) return reply.code(404).send({ error: "Trip guide draft not found" });
     return { ok: true };
   });
 }

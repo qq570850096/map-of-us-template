@@ -233,6 +233,10 @@ function updateArray<T>(items: T[], index: number, value: T) {
   return items.map((item, itemIndex) => (itemIndex === index ? value : item));
 }
 
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message.replace(/^API [^:]+:\s*/, "") : fallback;
+}
+
 export default function TripGuidesPage() {
   const [guides, setGuides] = useState<TripGuide[]>([]);
   const [drafts, setDrafts] = useState<TripDraft[]>([]);
@@ -259,8 +263,8 @@ export default function TripGuidesPage() {
     try {
       const data = await apiJson<{ guides: TripGuide[]; drafts: TripDraft[] }>("/trip-guides");
       applyTripGuideResponse(data);
-    } catch {
-      setStatus("旅行攻略加载失败，请确认后端服务可用。");
+    } catch (error) {
+      setStatus(errorMessage(error, "旅行攻略加载失败，请确认后端服务可用。"));
     } finally {
       setLoading(false);
     }
@@ -272,8 +276,8 @@ export default function TripGuidesPage() {
       .then((data) => {
         if (!cancelled) applyTripGuideResponse(data);
       })
-      .catch(() => {
-        if (!cancelled) setStatus("旅行攻略加载失败，请确认后端服务可用。");
+      .catch((error) => {
+        if (!cancelled) setStatus(errorMessage(error, "旅行攻略加载失败，请确认后端服务可用。"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -323,8 +327,8 @@ export default function TripGuidesPage() {
       }
       setStatus("旅行攻略已保存。");
       await load();
-    } catch {
-      setStatus("保存失败，请检查内容后重试。");
+    } catch (error) {
+      setStatus(errorMessage(error, "保存失败，请检查内容后重试。"));
     } finally {
       setWorking(null);
     }
@@ -339,8 +343,8 @@ export default function TripGuidesPage() {
       setStatus("草稿已保存为正式攻略。");
       setSelected({ kind: "new", id: "new", payload: emptyPayload() });
       await load();
-    } catch {
-      setStatus("草稿保存失败，请稍后再试。");
+    } catch (error) {
+      setStatus(errorMessage(error, "草稿保存失败，请稍后再试。"));
     } finally {
       setWorking(null);
     }
@@ -361,8 +365,8 @@ export default function TripGuidesPage() {
       setSelected({ kind: "new", id: "new", payload: emptyPayload() });
       setStatus("旅行攻略已删除。");
       await load();
-    } catch {
-      setStatus("删除失败，请稍后再试。");
+    } catch (error) {
+      setStatus(errorMessage(error, "删除失败，请稍后再试。"));
     } finally {
       setWorking(null);
     }
@@ -641,25 +645,26 @@ function TripAiDialog({ onClose, onCreated }: Readonly<{ onClose: () => void; on
   const [error, setError] = useState("");
   const derivedDays = daysBetweenInclusive(startDate, endDate);
   const dateError = Boolean(startDate && endDate && !derivedDays);
+  const runningJobId = job?.status === "running" ? job.id : "";
 
   useEffect(() => {
-    if (!job || job.status !== "running") return;
-    const timer = window.setInterval(async () => {
-      const data = await apiJson<{ job: AiJob }>(`/ai/trip-guide/jobs/${job.id}`).catch(() => null);
+    if (!runningJobId) return;
+    const poll = async () => {
+      const data = await apiJson<{ job: AiJob }>(`/ai/trip-guide/jobs/${runningJobId}`).catch(() => null);
       if (!data?.job) return;
       setJob(data.job);
       if (data.job.status === "completed") {
-        window.clearInterval(timer);
         const draft = data.job.result?.draft;
         if (draft) onCreated({ ...draft, payload: normalizePayload(draft.payload) });
       }
       if (data.job.status === "failed") {
-        window.clearInterval(timer);
         setError(data.job.error || "AI 生成失败，可以调整需求后重试。");
       }
-    }, 1800);
+    };
+    void poll();
+    const timer = window.setInterval(poll, 1800);
     return () => window.clearInterval(timer);
-  }, [job, onCreated]);
+  }, [runningJobId, onCreated]);
 
   const createJob = async () => {
     if (!origin.trim() || !destination.trim()) return;
@@ -673,8 +678,8 @@ function TripAiDialog({ onClose, onCreated }: Readonly<{ onClose: () => void; on
       setJob(data.job);
       const questions = data.job.result?.questions ?? [];
       setAnswers(Object.fromEntries(questions.map((question) => [question.id, question.options[0] ?? ""])));
-    } catch {
-      setError("AI 任务创建失败，请检查 AstrBot 配置或稍后再试。");
+    } catch (error) {
+      setError(errorMessage(error, "AI 任务创建失败，请检查 AstrBot 配置或稍后再试。"));
     } finally {
       setWorking(false);
     }
@@ -690,8 +695,8 @@ function TripAiDialog({ onClose, onCreated }: Readonly<{ onClose: () => void; on
         body: JSON.stringify({ answers }),
       });
       setJob(data.job);
-    } catch {
-      setError("确认失败，请重新生成。");
+    } catch (error) {
+      setError(errorMessage(error, "确认失败，请重新生成。"));
     } finally {
       setWorking(false);
     }

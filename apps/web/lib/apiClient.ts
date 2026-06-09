@@ -60,7 +60,11 @@ export async function apiFetch(path: string, options: ApiOptions = {}) {
 
 export async function apiJson<T>(path: string, options: ApiOptions = {}) {
   const response = await apiFetch(path, options);
-  if (!response.ok) throw new Error(`API ${path} failed (${response.status})`);
+  if (!response.ok) {
+    const data = (await response.json().catch(() => null)) as { error?: unknown } | null;
+    const message = typeof data?.error === "string" ? data.error : response.statusText;
+    throw new Error(`API ${path} failed (${response.status}): ${message}`);
+  }
   return (await response.json()) as T;
 }
 
