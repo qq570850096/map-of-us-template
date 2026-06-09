@@ -3,7 +3,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import {
-  ArrowLeft,
   Archive,
   BookOpen,
   CalendarDays,
@@ -108,8 +107,6 @@ export function MemoryPageShell({
   active: MemoryNavKey;
   children: ReactNode;
 }>) {
-  const current = navItems.find((item) => item.key === active);
-
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#FAFBF7] text-[#5A6670]">
       <div className="map-mist-band" aria-hidden="true" />
@@ -118,44 +115,6 @@ export function MemoryPageShell({
       <div className="relative z-10 flex min-h-screen">
         <MemorySidebar active={active} />
         <section className="memory-page-content min-w-0 flex-1 px-4 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] pt-4 sm:px-10 sm:py-8 lg:pb-8">
-          <div className="mb-5 lg:hidden">
-            <div className="flex min-h-12 items-center justify-between gap-3 rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/84 px-3 shadow-[0_10px_26px_rgba(90,102,112,0.08)] backdrop-blur">
-              <Link
-                className="inline-flex h-9 shrink-0 items-center gap-2 rounded-[7px] px-2 text-sm font-semibold text-[#5A6670]/72 transition hover:bg-white/58"
-                href="/map"
-                aria-label="返回地图"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                地图
-              </Link>
-              <span className="min-w-0 truncate text-sm font-semibold text-[#5A6670]">
-                {current?.label ?? "Map of Us"}
-              </span>
-            </div>
-            <nav className="mt-3 flex gap-2 overflow-x-auto pb-1">
-              {navItems
-                .filter((item) => item.key !== "map")
-                .map((item) => {
-                  const Icon = item.icon;
-                  const selected = item.key === active;
-
-                  return (
-                    <Link
-                      key={item.key}
-                      className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-[8px] border px-3 text-xs font-semibold transition ${
-                        selected
-                          ? "border-[#F5DCE0] bg-[#F5DCE0]/58 text-[#E8B8C2]"
-                          : "border-[#D8DDD8]/70 bg-[#FAFBF7]/72 text-[#5A6670]/62"
-                      }`}
-                      href={item.href}
-                    >
-                      <Icon className="h-3.5 w-3.5" />
-                      {item.label}
-                    </Link>
-                  );
-                })}
-            </nav>
-          </div>
           {children}
           <MobileAppNav active={active} />
         </section>
