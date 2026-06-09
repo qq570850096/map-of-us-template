@@ -23,7 +23,7 @@ NODE_ENV=production
 HOST=0.0.0.0
 DATABASE_URL=<Zeabur PostgreSQL connection string>
 JWT_SECRET=<a long random secret, at least 24 chars>
-WEB_ORIGIN=capacitor://localhost,http://localhost,https://localhost
+WEB_ORIGIN=https://localhost,capacitor://localhost,http://localhost,https://lylwithgwy.zeabur.app
 SEED_ON_START=true
 
 DEFAULT_SPACE_NAME=Map of Us
@@ -48,6 +48,12 @@ ASTRBOT_API_KEY=<optional AstrBot api key>
 
 After the first successful deploy, set `SEED_ON_START=false` unless you want the
 two default account display names and roles refreshed on every boot.
+
+The server always allows the common Capacitor origins
+`https://localhost`, `capacitor://localhost`, `http://localhost`, and
+`ionic://localhost` in addition to `WEB_ORIGIN`. For a private deployment, you
+can set `WEB_ORIGIN=*` to allow any browser origin while still supporting
+credentialed requests.
 
 The container starts with:
 

@@ -12,9 +12,25 @@ import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerTripGuideRoutes } from "./routes/tripGuides.js";
 
 const app = fastify({ logger: true });
+const defaultAllowedOrigins = [
+  "capacitor://localhost",
+  "http://localhost",
+  "https://localhost",
+  "ionic://localhost",
+];
+const configuredOrigins = config.WEB_ORIGIN.split(",").map((origin) => origin.trim()).filter(Boolean);
+const allowAnyOrigin = configuredOrigins.includes("*");
+const allowedOrigins = new Set([...defaultAllowedOrigins, ...configuredOrigins.filter((origin) => origin !== "*")]);
 
 await app.register(cors, {
-  origin: config.WEB_ORIGIN.split(",").map((origin) => origin.trim()),
+  origin: (origin, callback) => {
+    if (!origin || allowAnyOrigin || allowedOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(null, false);
+  },
   credentials: true,
 });
 await app.register(jwt, { secret: config.JWT_SECRET });
