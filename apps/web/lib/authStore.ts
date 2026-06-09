@@ -35,14 +35,7 @@ export function readSession(): StoredSession | null {
 
 export function writeSession(session: StoredSession) {
   window.localStorage.setItem(sessionKey, JSON.stringify(session));
-  if (session.membership?.role === "owner") {
-    window.sessionStorage.setItem("mapofus:admin-unlocked", "true");
-  } else {
-    window.sessionStorage.removeItem("mapofus:admin-unlocked");
-  }
-  window.dispatchEvent(new CustomEvent<boolean>("mapofus:admin-mode-updated", {
-    detail: session.membership?.role === "owner",
-  }));
+  writeAdminMode(true);
 }
 
 export function clearSession() {
@@ -55,8 +48,4 @@ export function updateAccessToken(accessToken: string) {
   const session = readSession();
   if (!session) return;
   writeSession({ ...session, accessToken });
-}
-
-export function hasOwnerRole() {
-  return readSession()?.membership?.role === "owner";
 }

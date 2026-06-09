@@ -20,10 +20,11 @@ import { chinaFeatures, makePath, makeProjectionForProvince, provinceIdOf } from
 import { cityFallbackSprite, getCitiesByProvince, type City } from "@/data/cities";
 import { getLatestMemory, sortMemoriesByTime, type Memory } from "@/data/memories";
 import { getLitCityIds, memoryStoreUpdatedEvent, type LocalMemoryStore } from "@/data/progress";
-import { adminModeUpdatedEvent, readAdminMode } from "@/data/adminMode";
+import { adminModeUpdatedEvent } from "@/data/adminMode";
 import type { Province } from "@/data/provinces";
 import { LocalPrivacyImage, LocalPrivacyImg } from "@/components/LocalPrivacyImage";
 import { apiFetch } from "@/lib/apiClient";
+import { readSession } from "@/lib/authStore";
 
 interface ProvinceMapProps {
   province: Province;
@@ -102,16 +103,19 @@ const useAdminMode = () => {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setIsAdmin(readAdminMode()), 0);
+    const syncLoginState = () => setIsAdmin(Boolean(readSession()));
+    const timer = window.setTimeout(syncLoginState, 0);
     const handleAdminMode = (event: Event) => {
       setIsAdmin(Boolean((event as CustomEvent<boolean>).detail));
     };
 
     window.addEventListener(adminModeUpdatedEvent, handleAdminMode);
+    window.addEventListener("storage", syncLoginState);
 
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener(adminModeUpdatedEvent, handleAdminMode);
+      window.removeEventListener("storage", syncLoginState);
     };
   }, []);
 
@@ -558,7 +562,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     : null;
 
   const handleSaveMemory = async (cityId: string, memory: Memory) => {
-    if (!isAdmin) throw new Error("Admin mode required");
+    if (!isAdmin) throw new Error("Login required");
 
     const response = await apiFetch("/memories", {
       method: "POST",
@@ -579,7 +583,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
   };
 
   const handleSetMemoryCover = async (cityId: string, memoryId: string, coverImage: string) => {
-    if (!isAdmin) throw new Error("Admin mode required");
+    if (!isAdmin) throw new Error("Login required");
 
     const response = await apiFetch("/memories", {
       method: "PATCH",
@@ -600,7 +604,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
   };
 
   const handleUpdateMemory = async (cityId: string, memoryId: string, memory: Memory) => {
-    if (!isAdmin) throw new Error("Admin mode required");
+    if (!isAdmin) throw new Error("Login required");
 
     const response = await apiFetch("/memories", {
       method: "PATCH",
@@ -621,7 +625,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
   };
 
   const handleDeleteMemory = async (cityId: string, memoryId: string) => {
-    if (!isAdmin) throw new Error("Admin mode required");
+    if (!isAdmin) throw new Error("Login required");
 
     const response = await apiFetch("/memories", {
       method: "DELETE",
@@ -642,7 +646,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
   };
 
   const handleSaveCityAsset = async (cityId: string, image: string) => {
-    if (!isAdmin) throw new Error("Admin mode required");
+    if (!isAdmin) throw new Error("Login required");
 
     const response = await apiFetch("/city-assets", {
       method: "PUT",
@@ -657,7 +661,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
   };
 
   const handleDeleteCityAsset = async (cityId: string) => {
-    if (!isAdmin) throw new Error("Admin mode required");
+    if (!isAdmin) throw new Error("Login required");
 
     const response = await apiFetch("/city-assets", {
       method: "DELETE",
@@ -1223,7 +1227,7 @@ function MemoryCard({
 
   const handleDelete = async (record: Memory) => {
     if (!isAdmin) {
-      setDeleteError("请先进入管理员模式");
+      setDeleteError("请先登录后再删除");
       return;
     }
 
@@ -1267,7 +1271,7 @@ function MemoryCard({
   const handlePickFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!isAdmin) {
       event.target.value = "";
-      setPhotoError("请先进入管理员模式");
+      setPhotoError("请先登录后再上传照片");
       return;
     }
 
@@ -1317,7 +1321,7 @@ function MemoryCard({
 
   const handlePolishMemory = async () => {
     if (!isAdmin) {
-      setPolishError("请先进入管理员模式");
+      setPolishError("请先登录后再润色");
       return;
     }
     if (!trimmedText || polishing) return;
@@ -1352,7 +1356,7 @@ function MemoryCard({
     const file = event.target.files?.[0];
     if (!isAdmin) {
       if (landmarkInputRef.current) landmarkInputRef.current.value = "";
-      setLandmarkError("请先进入管理员模式");
+      setLandmarkError("请先登录后再上传地标图");
       return;
     }
     if (!file || !file.type.startsWith("image/") || landmarkSaving) return;
@@ -1378,7 +1382,7 @@ function MemoryCard({
 
   const handleDeleteLandmark = async () => {
     if (!isAdmin) {
-      setLandmarkError("请先进入管理员模式");
+      setLandmarkError("请先登录后再删除地标图");
       return;
     }
 
@@ -1400,7 +1404,7 @@ function MemoryCard({
 
   const handleSave = async () => {
     if (!isAdmin) {
-      setSaveError("请先进入管理员模式");
+      setSaveError("请先登录后再保存");
       return;
     }
     if (!canSave) return;
@@ -1448,7 +1452,7 @@ function MemoryCard({
 
   const handleSetCover = async (photo: string) => {
     if (!isAdmin) {
-      setCoverError("请先进入管理员模式");
+      setCoverError("请先登录后再设置封面");
       return;
     }
 
@@ -1499,7 +1503,7 @@ function MemoryCard({
             {memory?.date ?? "添加回忆后点亮"}
           </p>
           {!isAdmin && (
-            <p className="mt-2 text-xs font-semibold text-[#5A6670]/42">管理员锁定，无法修改回忆</p>
+            <p className="mt-2 text-xs font-semibold text-[#5A6670]/42">未登录，无法修改回忆</p>
           )}
         </div>
         <div className="flex items-center gap-1">

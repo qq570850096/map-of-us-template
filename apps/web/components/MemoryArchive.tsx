@@ -25,9 +25,10 @@ import {
   memoryStoreUpdatedEvent,
   type LocalMemoryStore,
 } from "@/data/progress";
-import { adminModeUpdatedEvent, readAdminMode } from "@/data/adminMode";
+import { adminModeUpdatedEvent } from "@/data/adminMode";
 import { LocalPrivacyImage, LocalPrivacyImg } from "@/components/LocalPrivacyImage";
 import { apiFetch } from "@/lib/apiClient";
+import { readSession } from "@/lib/authStore";
 
 type ArchiveView = "city" | "timeline" | "tag";
 type MemoryItem = {
@@ -134,16 +135,19 @@ const useAdminMode = () => {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setIsAdmin(readAdminMode()), 0);
+    const syncLoginState = () => setIsAdmin(Boolean(readSession()));
+    const timer = window.setTimeout(syncLoginState, 0);
     const handleAdminMode = (event: Event) => {
       setIsAdmin(Boolean((event as CustomEvent<boolean>).detail));
     };
 
     window.addEventListener(adminModeUpdatedEvent, handleAdminMode);
+    window.addEventListener("storage", syncLoginState);
 
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener(adminModeUpdatedEvent, handleAdminMode);
+      window.removeEventListener("storage", syncLoginState);
     };
   }, []);
 
@@ -275,7 +279,7 @@ function NewMemoryDialog({
   const handlePickFile = async (event: ChangeEvent<HTMLInputElement>) => {
     if (!isAdmin) {
       event.target.value = "";
-      setPhotoError("请先进入管理员模式");
+      setPhotoError("请先登录后再上传照片");
       return;
     }
 
@@ -318,7 +322,7 @@ function NewMemoryDialog({
 
   const handlePolishMemory = async () => {
     if (!isAdmin) {
-      setPolishError("请先进入管理员模式");
+      setPolishError("请先登录后再润色");
       return;
     }
     if (!text.trim() || polishing) return;
@@ -351,7 +355,7 @@ function NewMemoryDialog({
 
   const handleSave = async () => {
     if (!isAdmin) {
-      setSaveError("请先进入管理员模式");
+      setSaveError("请先登录后再保存");
       return;
     }
     if (!canSave || !city) return;
@@ -401,7 +405,7 @@ function NewMemoryDialog({
           <div>
             <p className="text-xs font-semibold text-[#D86F82]/70">快速新增</p>
             <h2 className="mt-1 text-xl font-semibold text-[#5A6670]">写一条新的回忆</h2>
-            {!isAdmin ? <p className="mt-2 text-xs font-semibold text-[#D86F82]">请先在设置中开启管理员模式。</p> : null}
+            {!isAdmin ? <p className="mt-2 text-xs font-semibold text-[#D86F82]">请先登录后再编辑。</p> : null}
           </div>
           <button
             className="grid h-10 w-10 place-items-center rounded-[10px] border border-[#D8DDD8] text-[#5A6670]/62 transition hover:bg-white/68"
@@ -895,7 +899,7 @@ export default function MemoryArchive() {
                   <Plus className="h-4 w-4" />
                   新增第一条回忆
                 </button>
-                {!isAdmin ? <p className="mt-3 text-xs font-semibold text-[#D86F82]">请先到设置开启管理员模式。</p> : null}
+                {!isAdmin ? <p className="mt-3 text-xs font-semibold text-[#D86F82]">请先登录后再编辑。</p> : null}
               </div>
             </div>
           ) : filteredMemoryItems.length === 0 ? (

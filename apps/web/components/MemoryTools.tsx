@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Download,
   Heart,
+  LogOut,
   Pencil,
   Plus,
   Settings,
@@ -23,7 +24,6 @@ import {
 import {
   readAppSettings,
   saveAppSettings,
-  writeAppSettings,
   syncAppSettings,
   defaultAnniversaryDate,
   defaultAnniversaryLabel,
@@ -44,12 +44,10 @@ import {
 } from "@/data/loginPhotoStore";
 import {
   adminModeUpdatedEvent,
-  readAdminMode,
-  writeAdminMode,
 } from "@/data/adminMode";
 import { LocalPrivacyImage } from "@/components/LocalPrivacyImage";
-import { apiFetch, login } from "@/lib/apiClient";
-import { hasOwnerRole, readSession } from "@/lib/authStore";
+import { apiFetch, logout } from "@/lib/apiClient";
+import { readSession } from "@/lib/authStore";
 
 type StoredItem = {
   id: string;
@@ -76,7 +74,6 @@ type ToolConfig = {
   icon: typeof Heart;
   title: string;
   subtitle: string;
-  storageKey: string;
   kind: "favorite" | "anniversary" | "capsule";
 };
 
@@ -86,7 +83,6 @@ const configs = {
     icon: Heart,
     title: "地点收藏",
     subtitle: "先收好想一起去的地方，不点亮地图。",
-    storageKey: "mapofus:favorites",
     kind: "favorite",
   },
   anniversary: {
@@ -94,7 +90,6 @@ const configs = {
     icon: CalendarDays,
     title: "纪念日",
     subtitle: "把重要的日子放在这里，慢慢倒数。",
-    storageKey: "mapofus:anniversaries",
     kind: "anniversary",
   },
   capsule: {
@@ -102,12 +97,10 @@ const configs = {
     icon: Archive,
     title: "时光宝盒",
     subtitle: "存放不一定属于某座城市的小秘密。",
-    storageKey: "mapofus:capsules",
     kind: "capsule",
   },
 } satisfies Record<string, ToolConfig>;
 
-const auxiliaryStorageKeys = ["mapofus:favorites", "mapofus:anniversaries", "mapofus:capsules"] as const;
 const loginPhotoVersion = "placeholder-20260601";
 const loginPhotoFallback = (fileName: string) => `/photos/login/${fileName}.jpg?v=${loginPhotoVersion}`;
 
@@ -123,50 +116,27 @@ const loginPhotoSlots = [
   { id: "jinan", city: "济南", label: "泉边小记", fallback: loginPhotoFallback("jinan") },
 ] as const;
 
-const readItems = (key: string): StoredItem[] => {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(key) ?? "[]") as unknown;
-
-    return Array.isArray(parsed) ? parsed.filter((item): item is StoredItem => typeof item === "object" && item !== null && "id" in item) : [];
-  } catch {
-    return [];
-  }
-};
-
-const writeItems = (key: string, items: StoredItem[]) => {
-  window.localStorage.setItem(key, JSON.stringify(items));
-};
-
 const useAdminMode = () => {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setIsAdmin(readAdminMode()), 0);
+    const syncLoginState = () => setIsAdmin(Boolean(readSession()));
+    const timer = window.setTimeout(syncLoginState, 0);
     const handleAdminMode = (event: Event) => {
       setIsAdmin(Boolean((event as CustomEvent<boolean>).detail));
     };
 
     window.addEventListener(adminModeUpdatedEvent, handleAdminMode);
+    window.addEventListener("storage", syncLoginState);
 
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener(adminModeUpdatedEvent, handleAdminMode);
+      window.removeEventListener("storage", syncLoginState);
     };
   }, []);
 
   return isAdmin;
-};
-
-const readJsonArray = (key: string) => {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(key) ?? "[]") as unknown;
-
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
 };
 
 const imageFileToSettingImage = (file: File) =>
@@ -313,14 +283,26 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
   const [note, setNote] = useState("");
   const [cityId, setCityId] = useState(cities[0]?.id ?? "");
   const [editingId, setEditingId] = useState("");
+  const [status, setStatus] = useState("");
+  const [working, setWorking] = useState(false);
+
+  const load = async () => {
+    const response = await apiFetch(`/${config.kind === "favorite" ? "favorites" : config.kind === "anniversary" ? "anniversaries" : "capsules"}`, { cache: "no-store" }).catch(() => null);
+    const data = (await response?.json().catch(() => null)) as { items?: StoredItem[] } | null;
+    if (data?.items) setItems(data.items);
+  };
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setItems(readItems(config.storageKey));
+      void apiFetch(`/${config.kind === "favorite" ? "favorites" : config.kind === "anniversary" ? "anniversaries" : "capsules"}`, { cache: "no-store" })
+        .then((response) => response.json())
+        .then((data: { items?: StoredItem[] }) => {
+          if (data.items) setItems(data.items);
+        })
+        .catch(() => {});
     }, 0);
-
     return () => window.clearTimeout(timer);
-  }, [config.storageKey]);
+  }, [config.kind]);
 
   const cityOptions = useMemo(() => cities.slice().sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN")), []);
   const canSave = title.trim().length > 0;
@@ -332,24 +314,37 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
     setEditingId("");
   };
 
-  const save = () => {
-    if (!isAdmin) return;
+  const save = async () => {
+    if (!isAdmin) {
+      setStatus("请先登录后再保存");
+      return;
+    }
     if (!canSave) return;
 
-    const item = {
-      id: editingId || `${config.kind}-${Date.now()}`,
-      title: title.trim(),
-      date: date.trim(),
-      note: note.trim(),
-      cityId: config.kind === "favorite" ? cityId : undefined,
-    };
-    const nextItems = editingId
-      ? items.map((current) => (current.id === editingId ? item : current))
-      : [item, ...items];
-
-    setItems(nextItems);
-    writeItems(config.storageKey, nextItems);
-    resetForm();
+    setWorking(true);
+    setStatus("");
+    try {
+      const response = await apiFetch("/auxiliary-items", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingId || undefined,
+          kind: config.kind,
+          title: title.trim(),
+          date: date.trim() || undefined,
+          note: note.trim(),
+          cityId: config.kind === "favorite" ? cityId : undefined,
+        }),
+      });
+      if (!response.ok) throw new Error("Save failed");
+      resetForm();
+      setStatus("已保存到服务器");
+      await load();
+    } catch {
+      setStatus("保存失败，请检查登录状态和网络后重试");
+    } finally {
+      setWorking(false);
+    }
   };
 
   const startEdit = (item: StoredItem) => {
@@ -361,12 +356,24 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
     if (item.cityId) setCityId(item.cityId);
   };
 
-  const remove = (id: string) => {
-    if (!isAdmin) return;
-    const nextItems = items.filter((item) => item.id !== id);
-    setItems(nextItems);
-    writeItems(config.storageKey, nextItems);
-    if (editingId === id) resetForm();
+  const remove = async (id: string) => {
+    if (!isAdmin) {
+      setStatus("请先登录后再删除");
+      return;
+    }
+    setWorking(true);
+    setStatus("");
+    try {
+      const response = await apiFetch(`/auxiliary-items/${id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Delete failed");
+      if (editingId === id) resetForm();
+      setStatus("已从服务器删除");
+      await load();
+    } catch {
+      setStatus("删除失败，请检查登录状态和网络后重试");
+    } finally {
+      setWorking(false);
+    }
   };
 
   return (
@@ -388,7 +395,7 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
         <div className="h-fit rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] backdrop-blur sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-[#5A6670]">{editingId ? "编辑" : "新增"}</p>
-            {!isAdmin && <span className="text-xs font-semibold text-[#5A6670]/42">管理员锁定</span>}
+            {!isAdmin && <span className="text-xs font-semibold text-[#5A6670]/42">未登录</span>}
           </div>
           <input
             className="mt-4 w-full rounded-[7px] border border-[#D8DDD8] bg-[#FAFBF7] px-3 py-2 text-sm outline-none transition focus:border-[#E8B8C2]"
@@ -436,8 +443,9 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
             disabled={!isAdmin || !canSave}
           >
             <Plus className="h-4 w-4" />
-            {editingId ? "保存修改" : "保存"}
+            {working ? "保存中" : editingId ? "保存修改" : "保存"}
           </button>
+          {status ? <p className="mt-3 text-xs font-semibold text-[#D86F82]">{status}</p> : null}
           {editingId && (
             <button
               className="mt-2 flex w-full items-center justify-center gap-2 rounded-[7px] px-4 py-2 text-sm font-semibold text-[#5A6670]/56 transition hover:bg-[#D8DDD8]/28 hover:text-[#5A6670]"
@@ -478,9 +486,9 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
                     <button
                       className="grid h-8 w-8 place-items-center rounded-[6px] text-[#5A6670]/42 transition hover:bg-[#F5DCE0]/45 hover:text-[#E8B8C2]"
                       type="button"
-                      onClick={() => remove(item.id)}
+                      onClick={() => void remove(item.id)}
                       aria-label="删除"
-                      disabled={!isAdmin}
+                      disabled={!isAdmin || working}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -548,7 +556,7 @@ export function AnniversariesPage() {
 
   const save = async () => {
     if (!isAdmin || !title.trim()) {
-      setStatus(isAdmin ? "" : "请先进入管理员模式");
+      setStatus(isAdmin ? "" : "请先登录后再保存");
       return;
     }
     setStatus("");
@@ -748,14 +756,11 @@ export function SettingsPage() {
   const [appSettings, setAppSettings] = useState<AppSettings>({});
   const [basicSettingsDraft, setBasicSettingsDraft] = useState<AppSettings>({});
   const [loginPhotos, setLoginPhotos] = useState<Record<string, string>>({});
-  const [adminCode, setAdminCode] = useState("");
-  const [adminError, setAdminError] = useState("");
   const [status, setStatus] = useState("");
   const [basicSettingsStatus, setBasicSettingsStatus] = useState("");
   const [isWorking, setIsWorking] = useState(false);
   const [isSavingBasicSettings, setIsSavingBasicSettings] = useState(false);
   const [newEntryPassword, setNewEntryPassword] = useState("");
-  const [newAdminPassword, setNewAdminPassword] = useState("");
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const loadMemoryCount = async () => {
@@ -783,7 +788,7 @@ export function SettingsPage() {
       setBasicSettingsDraft(nextSettings);
       void Promise.all(Object.entries(legacyPhotos).map(([slotId, image]) => writeLoginPhoto(slotId, image)))
         .then(async () => {
-          if (Object.keys(legacyPhotos).length > 0) writeAppSettings(nextSettings);
+          if (Object.keys(legacyPhotos).length > 0 && readSession()) await saveAppSettings(nextSettings);
           setLoginPhotos(await readLoginPhotos());
           const loginPhotoTexts = await readLoginPhotoTexts();
           setAppSettings((current) => ({ ...current, loginPhotoTexts }));
@@ -811,7 +816,7 @@ export function SettingsPage() {
   const updateLoginPhoto = async (slotId: string, event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!isAdmin) {
-      setStatus("请先进入管理员模式");
+      setStatus("请先登录后再保存");
       event.target.value = "";
       return;
     }
@@ -835,7 +840,7 @@ export function SettingsPage() {
 
   const resetLoginPhoto = (slotId: string) => {
     if (!isAdmin) {
-      setStatus("请先进入管理员模式");
+      setStatus("请先登录后再删除");
       return;
     }
 
@@ -849,7 +854,7 @@ export function SettingsPage() {
 
   const updateLoginPhotoText = (slotId: string, field: keyof LoginPhotoText, value: string) => {
     if (!isAdmin) {
-      setStatus("请先进入管理员模式");
+      setStatus("请先登录后再编辑");
       return;
     }
 
@@ -873,7 +878,7 @@ export function SettingsPage() {
 
   const resetLoginPhotoText = (slotId: string) => {
     if (!isAdmin) {
-      setStatus("请先进入管理员模式");
+      setStatus("请先登录后再删除");
       return;
     }
 
@@ -892,7 +897,7 @@ export function SettingsPage() {
 
   const updateBasicSetting = (patch: Partial<AppSettings>) => {
     if (!isAdmin) {
-      setStatus("请先进入管理员模式");
+      setStatus("请先登录后再编辑");
       return;
     }
 
@@ -903,37 +908,26 @@ export function SettingsPage() {
 
   const saveBasicSettings = async () => {
     if (!isAdmin) {
-      setStatus("请先进入管理员模式");
+      setStatus("请先登录后再保存");
       return;
     }
     if (isSavingBasicSettings) return;
 
     const next = { ...appSettings, ...basicSettingsDraft };
-    const willSyncServer = Boolean(readSession());
 
     setIsSavingBasicSettings(true);
     setBasicSettingsStatus("基础设置保存中……");
     setStatus("");
 
     try {
-      const result = await saveAppSettings(next);
-      setAppSettings(result.settings);
-      setBasicSettingsDraft(result.settings);
-      if (result.synced) {
-        setBasicSettingsStatus("基础设置已保存并同步到服务器。");
-        setStatus("基础设置已保存并同步到服务器");
-      } else if (willSyncServer) {
-        const sessionExpired = !readSession();
-        const reason = sessionExpired ? "登录已过期" : "服务器同步失败";
-        setBasicSettingsStatus(`基础设置已保存到本机，但${reason}。请重新进入管理员模式后再同步服务器。`);
-        setStatus(`基础设置已保存到本机，但${reason}`);
-      } else {
-        setBasicSettingsStatus("基础设置已保存到本机。进入管理员模式后可同步到服务器。");
-        setStatus("基础设置已保存到本机");
-      }
+      const saved = await saveAppSettings(next);
+      setAppSettings(saved);
+      setBasicSettingsDraft(saved);
+      setBasicSettingsStatus("基础设置已保存到服务器。");
+      setStatus("基础设置已保存到服务器");
     } catch {
-      setBasicSettingsStatus("基础设置保存失败：本机浏览器存储不可用，请检查存储权限后重试。");
-      setStatus("基础设置保存失败，本机存储不可用");
+      setBasicSettingsStatus("基础设置保存失败：服务器没有确认保存，请检查登录状态和网络后重试。");
+      setStatus("基础设置保存失败，请检查登录状态和网络后重试");
     } finally {
       setIsSavingBasicSettings(false);
     }
@@ -954,7 +948,7 @@ export function SettingsPage() {
   const updateCoupleLogo = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!isAdmin) {
-      setStatus("请先进入管理员模式");
+      setStatus("请先登录后再编辑");
       event.target.value = "";
       return;
     }
@@ -977,16 +971,16 @@ export function SettingsPage() {
 
   const resetCoupleLogo = () => {
     if (!isAdmin) {
-      setStatus("请先进入管理员模式");
+      setStatus("请先登录后再编辑");
       return;
     }
     updateBasicSetting({ coupleLogo: undefined });
     setBasicSettingsStatus("头像 logo 已恢复为默认草稿，点击保存基础设置后生效。");
   };
 
-  const savePassword = async (target: "site" | "admin", value: string) => {
+  const savePassword = async (value: string) => {
     if (!isAdmin) {
-      setStatus("请先进入管理员模式");
+      setStatus("请先登录后再修改密码");
       return;
     }
 
@@ -995,7 +989,7 @@ export function SettingsPage() {
       setStatus("请输入新密码");
       return;
     }
-    if (target === "site" && !/^\d{4,8}$/.test(trimmed)) {
+    if (!/^\d{4,8}$/.test(trimmed)) {
       setStatus("进入密码请用 4-8 位数字（你们在一起的日期，如 1223）");
       return;
     }
@@ -1004,14 +998,13 @@ export function SettingsPage() {
     const response = await apiFetch("/auth/password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target, newPassword: trimmed }),
+      body: JSON.stringify({ newPassword: trimmed }),
     }).catch(() => null);
     setIsWorking(false);
 
     if (response?.ok) {
-      setStatus(target === "site" ? "进入密码已修改" : "管理员密码已修改");
-      if (target === "site") setNewEntryPassword("");
-      else setNewAdminPassword("");
+      setStatus("进入密码已修改");
+      setNewEntryPassword("");
     } else {
       setStatus("密码修改失败，请重试");
     }
@@ -1019,7 +1012,7 @@ export function SettingsPage() {
 
   const exportLocalData = async () => {
     if (!isAdmin) {
-      setStatus("请先进入管理员模式");
+      setStatus("请先登录后再导出");
       return;
     }
 
@@ -1029,12 +1022,14 @@ export function SettingsPage() {
     const memories = await loadMemoryCount();
     const assetResponse = await apiFetch("/city-assets", { cache: "no-store" }).catch(() => null);
     const assetData = (await assetResponse?.json().catch(() => null)) as { assets?: CityAssetStore } | null;
+    const auxiliaryResponse = await apiFetch("/auxiliary-items", { cache: "no-store" }).catch(() => null);
+    const auxiliaryData = (await auxiliaryResponse?.json().catch(() => null)) as { items?: AuxiliaryItem[] } | null;
     const payload = {
       version: 1,
       exportedAt: new Date().toISOString(),
       memories,
       cityAssets: assetData?.assets ?? {},
-      auxiliary: Object.fromEntries(auxiliaryStorageKeys.map((key) => [key, readJsonArray(key)])),
+      auxiliary: auxiliaryData?.items ?? [],
       settings: {
         ...readAppSettings(),
         loginPhotos: await readLoginPhotos(),
@@ -1056,7 +1051,7 @@ export function SettingsPage() {
   const importLocalData = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!isAdmin) {
-      setStatus("请先进入管理员模式");
+      setStatus("请先登录后再导入");
       if (importInputRef.current) importInputRef.current.value = "";
       return;
     }
@@ -1086,10 +1081,6 @@ export function SettingsPage() {
       if (!importResponse.ok) throw new Error("Import failed");
 
       const data = (await importResponse.json()) as { memories: LocalMemoryStore };
-      auxiliaryStorageKeys.forEach((key) => {
-        const value = payload.auxiliary?.[key];
-        if (Array.isArray(value)) window.localStorage.setItem(key, JSON.stringify(value));
-      });
       if (payload.settings) {
         const nextSettings = normalizeAppSettings(payload.settings);
         await Promise.all(
@@ -1099,7 +1090,7 @@ export function SettingsPage() {
           Object.entries(nextSettings.loginPhotoTexts ?? {}).map(([slotId, text]) => writeLoginPhotoText(slotId, text)),
         );
         const settingsWithoutPhotos = { ...nextSettings, loginPhotos: undefined };
-        writeAppSettings(settingsWithoutPhotos);
+        await saveAppSettings(settingsWithoutPhotos);
         setAppSettings(settingsWithoutPhotos);
         setLoginPhotos(await readLoginPhotos());
       }
@@ -1114,38 +1105,12 @@ export function SettingsPage() {
     }
   };
 
-  const unlockAdmin = async () => {
-    if (hasOwnerRole()) {
-      writeAdminMode(true);
-      setAdminCode("");
-      setAdminError("");
-      setStatus("管理员模式已开启");
-      return;
-    }
-
-    if (!adminCode.trim()) {
-      setAdminError("请输入管理员密码");
-      return;
-    }
-
-    const loggedIn = await login("me", adminCode).catch(() => false);
-
-    if (loggedIn && hasOwnerRole()) {
-      writeAdminMode(true);
-      setAdminCode("");
-      setAdminError("");
-      setStatus("管理员模式已开启");
-      return;
-    }
-
-    setAdminError(loggedIn ? "当前账号不是管理员" : "密码不对");
-  };
-
-  const lockAdmin = () => {
-    writeAdminMode(false);
-    setAdminCode("");
-    setAdminError("");
-    setStatus("管理员模式已关闭");
+  const signOut = async () => {
+    if (isWorking) return;
+    setIsWorking(true);
+    await logout().catch(() => null);
+    setIsWorking(false);
+    setStatus("已退出登录");
   };
 
   return (
@@ -1168,9 +1133,9 @@ export function SettingsPage() {
                 <ShieldOff className="h-6 w-6 text-[#E8B8C2]" />
               )}
               <div>
-                <p className="text-sm font-semibold text-[#5A6670]">管理员模式</p>
+                <p className="text-sm font-semibold text-[#5A6670]">登录状态</p>
                 <p className="mt-1 text-xs text-[#5A6670]/52">
-                  {isAdmin ? "已开启，可以编辑和导入数据。" : "未开启，设置改动和删除操作已锁定。"}
+                  {isAdmin ? "已登录，可以保存、删除和导入数据。" : "未登录，设置改动和删除操作会被锁定。"}
                 </p>
               </div>
             </div>
@@ -1179,34 +1144,14 @@ export function SettingsPage() {
               <button
                 className="rounded-[7px] border border-[#D8DDD8] px-4 py-2 text-sm font-semibold text-[#5A6670]/64 transition hover:bg-white/60"
                 type="button"
-                onClick={lockAdmin}
+                onClick={() => void signOut()}
+                disabled={isWorking}
               >
-                退出管理员
+                <LogOut className="mr-2 inline h-4 w-4" />
+                退出登录
               </button>
             ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  className="min-h-10 w-36 rounded-[7px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/70 px-3 text-sm text-[#5A6670] outline-none transition focus:border-[#A8C8DC] focus:bg-white"
-                  value={adminCode}
-                  onChange={(event) => {
-                    setAdminCode(event.target.value);
-                    setAdminError("");
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void unlockAdmin();
-                  }}
-                  placeholder="管理员密码"
-                  type="password"
-                />
-                <button
-                  className="rounded-[7px] bg-[#F5DCE0] px-4 py-2 text-sm font-semibold text-[#E8B8C2] transition hover:bg-[#E8B8C2] hover:text-[#FAFBF7]"
-                  type="button"
-                  onClick={() => void unlockAdmin()}
-                >
-                  开启
-                </button>
-                {adminError && <span className="text-xs font-semibold text-[#E8B8C2]">{adminError}</span>}
-              </div>
+              <p className="text-sm font-semibold text-[#D86F82]">请从首页输入密码登录后再编辑。</p>
             )}
           </div>
         </div>
@@ -1215,7 +1160,7 @@ export function SettingsPage() {
           <div>
             <p className="text-sm font-semibold text-[#5A6670]">密码设置</p>
             <p className="mt-2 text-sm leading-6 text-[#5A6670]/62">
-              修改打开应用的进入密码和管理员密码。修改后立即生效，下次打开也用新密码。需要先开启管理员模式。
+              修改打开应用的进入密码。修改后立即生效，下次打开也用新密码。需要先登录。
             </p>
           </div>
 
@@ -1234,7 +1179,7 @@ export function SettingsPage() {
                 <button
                   type="button"
                   className="shrink-0 rounded-[7px] bg-[#F5DCE0] px-4 py-2 text-sm font-semibold text-[#E8B8C2] transition hover:bg-[#E8B8C2] hover:text-[#FAFBF7] disabled:opacity-50"
-                  onClick={() => void savePassword("site", newEntryPassword)}
+                  onClick={() => void savePassword(newEntryPassword)}
                   disabled={!isAdmin || isWorking}
                 >
                   保存
@@ -1242,27 +1187,9 @@ export function SettingsPage() {
               </div>
             </div>
 
-            <div className="grid gap-1.5">
-              <span className="text-xs font-semibold text-[#5A6670]/48">管理员密码（自己设置）</span>
-              <div className="flex gap-2">
-                <input
-                  className="min-h-10 w-full rounded-[7px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/70 px-3 text-sm text-[#5A6670] outline-none transition focus:border-[#A8C8DC] focus:bg-white disabled:opacity-50"
-                  value={newAdminPassword}
-                  onChange={(event) => setNewAdminPassword(event.target.value)}
-                  type="password"
-                  placeholder="新的管理员密码"
-                  disabled={!isAdmin}
-                />
-                <button
-                  type="button"
-                  className="shrink-0 rounded-[7px] bg-[#F5DCE0] px-4 py-2 text-sm font-semibold text-[#E8B8C2] transition hover:bg-[#E8B8C2] hover:text-[#FAFBF7] disabled:opacity-50"
-                  onClick={() => void savePassword("admin", newAdminPassword)}
-                  disabled={!isAdmin || isWorking}
-                >
-                  保存
-                </button>
-              </div>
-            </div>
+            <p className="rounded-[7px] border border-[#D8DDD8]/70 bg-white/38 px-3 py-3 text-sm leading-6 text-[#5A6670]/60">
+              登录后即可保存和删除内容，不再区分管理员权限。
+            </p>
           </div>
         </div>
 

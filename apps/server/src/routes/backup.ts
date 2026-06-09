@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { Prisma } from "@prisma/client";
+import { auxiliaryKinds } from "@map-of-us/shared";
 import { requireAuth } from "../auth.js";
 import { cityInfo } from "../cities.js";
 import { prisma } from "../prisma.js";
@@ -16,6 +17,16 @@ function normalizeTags(value: unknown) {
   return [...new Set(value.filter((tag): tag is string => typeof tag === "string").map((tag) => tag.trim()).filter(Boolean))]
     .map((tag) => tag.slice(0, 12))
     .slice(0, 12);
+}
+
+function auxiliaryEntries(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) return value.filter(isRecord);
+  if (!isRecord(value)) return [];
+  return Object.entries(value).flatMap(([key, entries]) => {
+    const legacyKind = key.includes("favorite") ? "favorite" : key.includes("anniversar") ? "anniversary" : key.includes("capsule") ? "capsule" : "";
+    if (!legacyKind || !Array.isArray(entries)) return [];
+    return entries.filter(isRecord).map((entry): Record<string, unknown> => ({ ...entry, kind: typeof entry.kind === "string" ? entry.kind : legacyKind }));
+  });
 }
 
 export async function registerBackupRoutes(app: FastifyInstance) {
@@ -102,6 +113,27 @@ export async function registerBackupRoutes(app: FastifyInstance) {
             : [],
         ),
       );
+    }
+
+    const auxiliary = auxiliaryEntries((payload as Record<string, unknown>).auxiliary);
+    if (auxiliary.length > 0) {
+      await prisma.auxiliaryItem.deleteMany({ where: { spaceId: auth.spaceId } });
+      await prisma.auxiliaryItem.createMany({
+        data: auxiliary.flatMap((item) => {
+          const kind = typeof item.kind === "string" && auxiliaryKinds.includes(item.kind as never) ? item.kind as never : null;
+          const title = typeof item.title === "string" ? item.title.trim() : "";
+          if (!kind || !title) return [];
+          return [{
+            spaceId: auth.spaceId,
+            kind,
+            title,
+            date: typeof item.date === "string" ? item.date : null,
+            note: typeof item.note === "string" ? item.note : "",
+            cityId: typeof item.cityId === "string" ? item.cityId : null,
+            payload: item.payload === undefined ? Prisma.JsonNull : item.payload as Prisma.InputJsonValue,
+          }];
+        }),
+      });
     }
 
     const memories = await prisma.memory.findMany({

@@ -236,15 +236,15 @@ function updateArray<T>(items: T[], index: number, value: T) {
 
 function errorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
-    if (error.status === 401) return "登录已过期，请先到设置页重新进入管理员模式。";
-    if (error.status === 403) return "当前账号没有权限，请使用管理员账号登录。";
+    if (error.status === 401) return "登录已过期，请重新登录后再操作。";
+    if (error.status === 403) return "当前登录账号没有权限执行此操作。";
     return error.message.replace(/^API .* failed \(\d+\):\s*/, "");
   }
   return error instanceof Error ? error.message.replace(/^API .* failed \(\d+\):\s*/, "") : fallback;
 }
 
 function requireSessionMessage() {
-  return readSession() ? "" : "请先到设置页进入管理员模式，再生成、保存或删除旅行攻略。";
+  return readSession() ? "" : "请先登录后再生成、保存或删除旅行攻略。";
 }
 
 export default function TripGuidesPage() {
