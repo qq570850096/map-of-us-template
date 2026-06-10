@@ -1,4 +1,4 @@
-import { writeAdminMode } from "@/data/adminMode";
+import { writeLoginState } from "@/data/loginState";
 
 type StoredSession = {
   accessToken: string;
@@ -14,7 +14,7 @@ type StoredSession = {
     slug: string;
   };
   membership?: {
-    role: "owner" | "member";
+    role: "member";
   };
 };
 
@@ -35,13 +35,13 @@ export function readSession(): StoredSession | null {
 
 export function writeSession(session: StoredSession) {
   window.localStorage.setItem(sessionKey, JSON.stringify(session));
-  writeAdminMode(true);
+  writeLoginState(true);
 }
 
 export function clearSession() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(sessionKey);
-  writeAdminMode(false);
+  writeLoginState(false);
 }
 
 export function updateAccessToken(accessToken: string) {

@@ -10,7 +10,7 @@ import {
 } from "@/data/progress";
 import { memories, type Memory } from "@/data/memories";
 import { LocalPrivacyImage, LocalPrivacyImg } from "@/components/LocalPrivacyImage";
-import { apiFetch } from "@/lib/apiClient";
+import { fetchDecryptedMemoryStore } from "@/lib/privateData";
 
 const isBrowserImageUrl = (url: string) => url.startsWith("data:image/") || url.startsWith("https://");
 const randomMemoryCount = 3;
@@ -70,20 +70,15 @@ export default function RecentMemories() {
     };
 
     async function loadLocalMemories() {
-      const response = await apiFetch("/memories", { cache: "no-store" }).catch(() => null);
-      if (!response?.ok) {
+      const decryptedMemories = await fetchDecryptedMemoryStore();
+      if (!decryptedMemories) {
         if (!cancelled) setRandomMemories(pickRandomMemories(collectMemories({})));
         return;
       }
 
-      const data = (await response.json().catch(() => null)) as
-        | { memories?: LocalMemoryStore }
-        | null;
-
       if (cancelled) return;
 
-      const nextLocalMemories = data?.memories ?? {};
-      setRandomMemories(pickRandomMemories(collectMemories(nextLocalMemories)));
+      setRandomMemories(pickRandomMemories(collectMemories(decryptedMemories)));
     }
 
     window.addEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);

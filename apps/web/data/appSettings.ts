@@ -1,5 +1,6 @@
 import { apiJson } from "@/lib/apiClient";
 import { readSession } from "@/lib/authStore";
+import { decryptSettings, encryptSettingsForSave } from "@/lib/privateData";
 
 export const appSettingsStorageKey = "mapofus:settings";
 export const appSettingsUpdatedEvent = "mapofus:settings-updated";
@@ -33,6 +34,7 @@ const cleanString = (value: unknown, maxLength: number): string | undefined => {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   if (!trimmed) return undefined;
+  if (trimmed.startsWith("e2ee:v1:")) return trimmed;
   return trimmed.slice(0, maxLength);
 };
 
@@ -105,17 +107,18 @@ export const writeAppSettings = (settings: AppSettings) => {
 export const saveAppSettings = async (settings: AppSettings) => {
   const normalized = normalizeAppSettings(settings);
   if (!readSession()) throw new Error("请先登录后再保存设置。");
+  const encrypted = await encryptSettingsForSave(normalized);
 
   const data = await apiJson<{ settings: AppSettings }>("/settings", {
     method: "PUT",
-    body: JSON.stringify({ settings: normalized }),
+    body: JSON.stringify({ settings: encrypted }),
   });
-  return writeLocalAppSettings(data.settings);
+  return writeLocalAppSettings(await decryptSettings(normalizeAppSettings(data.settings)));
 };
 
 export const syncAppSettings = async () => {
   if (!readSession()) return readAppSettings();
 
   const data = await apiJson<{ settings: AppSettings }>("/settings");
-  return writeLocalAppSettings(data.settings);
+  return writeLocalAppSettings(await decryptSettings(normalizeAppSettings(data.settings)));
 };

@@ -11,9 +11,12 @@ import type { AuthenticatedRequest } from "../types.js";
 const datePattern = /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/;
 const maxTagsPerMemory = 12;
 const maxTagLength = 12;
+const encryptedStringPrefix = "e2ee:v1:";
 
 function normalizeTags(tags: string[] | undefined) {
-  return [...new Set((tags ?? []).map((tag) => tag.trim()).filter(Boolean).map((tag) => tag.slice(0, maxTagLength)))]
+  return [...new Set((tags ?? []).map((tag) => tag.trim()).filter(Boolean).map((tag) =>
+    tag.startsWith(encryptedStringPrefix) ? tag : tag.slice(0, maxTagLength),
+  ))]
     .slice(0, maxTagsPerMemory);
 }
 

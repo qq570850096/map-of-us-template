@@ -1,5 +1,6 @@
 import { apiFetch } from "@/lib/apiClient";
 import { readSession } from "@/lib/authStore";
+import { decryptSettings, encryptSettingsForSave } from "@/lib/privateData";
 
 export const loginPhotosUpdatedEvent = "mapofus:login-photos-updated";
 
@@ -189,10 +190,11 @@ const fetchServerStore = async (): Promise<LoginPhotoServerStore> => {
   if (!response.ok) throw new Error(`readLoginPhotos failed (${response.status})`);
   const data = (await response.json()) as Partial<LoginPhotoServerStore>;
 
-  return {
+  const store = {
     photos: data.photos ?? {},
     texts: data.texts ?? {},
   };
+  return { ...store, texts: (await decryptSettings({ loginPhotoTexts: store.texts })).loginPhotoTexts ?? {} };
 };
 
 export const readLoginPhotoStore = async (): Promise<LoginPhotoServerStore> => {
@@ -235,10 +237,11 @@ export const writeLoginPhoto = async (slotId: string, image: string): Promise<vo
 };
 
 export const writeLoginPhotoText = async (slotId: string, text: LoginPhotoText): Promise<void> => {
+  const encrypted = (await encryptSettingsForSave({ loginPhotoTexts: { [slotId]: text } })).loginPhotoTexts?.[slotId] ?? text;
   const response = await apiFetch(apiEndpoint, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ slotId, text }),
+    body: JSON.stringify({ slotId, text: encrypted }),
   });
   if (!response.ok) throw new Error(`writeLoginPhotoText failed (${response.status})`);
   if (typeof window !== "undefined") {

@@ -15,7 +15,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function normalizeTags(value: unknown) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter((tag): tag is string => typeof tag === "string").map((tag) => tag.trim()).filter(Boolean))]
-    .map((tag) => tag.slice(0, 12))
+    .map((tag) => tag.startsWith("e2ee:v1:") ? tag : tag.slice(0, 12))
     .slice(0, 12);
 }
 

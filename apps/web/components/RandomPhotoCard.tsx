@@ -10,7 +10,7 @@ import {
   type LocalMemoryStore,
 } from "@/data/progress";
 import { LocalPrivacyImage, LocalPrivacyImg } from "@/components/LocalPrivacyImage";
-import { apiFetch } from "@/lib/apiClient";
+import { fetchDecryptedMemoryStore } from "@/lib/privateData";
 
 interface RandomPhoto {
   id: string;
@@ -83,17 +83,13 @@ export default function RandomPhotoCard() {
     };
 
     async function loadLocalMemories() {
-      const response = await apiFetch("/memories", { cache: "no-store" }).catch(() => null);
-      if (!response?.ok) {
+      const decryptedMemories = await fetchDecryptedMemoryStore();
+      if (!decryptedMemories) {
         if (!cancelled) applyMemories({});
         return;
       }
 
-      const data = (await response.json().catch(() => null)) as
-        | { memories?: LocalMemoryStore }
-        | null;
-
-      if (!cancelled) applyMemories(data?.memories ?? {});
+      if (!cancelled) applyMemories(decryptedMemories);
     }
 
     window.addEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);

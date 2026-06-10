@@ -20,11 +20,12 @@ import { chinaFeatures, makePath, makeProjectionForProvince, provinceIdOf } from
 import { cityFallbackSprite, getCitiesByProvince, type City } from "@/data/cities";
 import { getLatestMemory, sortMemoriesByTime, type Memory } from "@/data/memories";
 import { getLitCityIds, memoryStoreUpdatedEvent, type LocalMemoryStore } from "@/data/progress";
-import { adminModeUpdatedEvent } from "@/data/adminMode";
+import { loginStateUpdatedEvent } from "@/data/loginState";
 import type { Province } from "@/data/provinces";
 import { LocalPrivacyImage, LocalPrivacyImg } from "@/components/LocalPrivacyImage";
 import { apiFetch } from "@/lib/apiClient";
 import { readSession } from "@/lib/authStore";
+import { decryptMemoryStore, encryptMemoryForSave, fetchDecryptedMemoryStore } from "@/lib/privateData";
 
 interface ProvinceMapProps {
   province: Province;
@@ -99,27 +100,27 @@ const normalizeMemoryTags = (tags: string[]) =>
   [...new Set(tags.map((tag) => tag.trim()).filter(Boolean).map((tag) => tag.slice(0, maxTagLength)))]
     .slice(0, maxTagsPerMemory);
 
-const useAdminMode = () => {
-  const [isAdmin, setIsAdmin] = useState(false);
+const useLoginState = () => {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
-    const syncLoginState = () => setIsAdmin(Boolean(readSession()));
+    const syncLoginState = () => setIsLoggedIn(Boolean(readSession()));
     const timer = window.setTimeout(syncLoginState, 0);
-    const handleAdminMode = (event: Event) => {
-      setIsAdmin(Boolean((event as CustomEvent<boolean>).detail));
+    const handleLoginState = (event: Event) => {
+      setIsLoggedIn(Boolean((event as CustomEvent<boolean>).detail));
     };
 
-    window.addEventListener(adminModeUpdatedEvent, handleAdminMode);
+    window.addEventListener(loginStateUpdatedEvent, handleLoginState);
     window.addEventListener("storage", syncLoginState);
 
     return () => {
       window.clearTimeout(timer);
-      window.removeEventListener(adminModeUpdatedEvent, handleAdminMode);
+      window.removeEventListener(loginStateUpdatedEvent, handleLoginState);
       window.removeEventListener("storage", syncLoginState);
     };
   }, []);
 
-  return isAdmin;
+  return isLoggedIn;
 };
 
 const normalizeMemoryDate = (value: string) => {
@@ -371,7 +372,7 @@ const photosOfMemory = (memory?: Memory) => {
 };
 
 export default function ProvinceMap({ province, width = 1120, height = 760 }: ProvinceMapProps) {
-  const isAdmin = useAdminMode();
+  const isLoggedIn = useLoginState();
   const frameRef = useRef<HTMLDivElement>(null);
   const nudgeTimeoutRef = useRef<BrowserTimeout | null>(null);
   const localMemoriesRef = useRef<LocalMemoryStore>({});
@@ -439,20 +440,17 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     let cancelled = false;
 
     async function loadLocalState() {
-      const [memoryResponse, assetResponse] = await Promise.all([
-        apiFetch("/memories", { cache: "no-store" }).catch(() => null),
+      const [memoryData, assetResponse] = await Promise.all([
+        fetchDecryptedMemoryStore(),
         apiFetch("/city-assets", { cache: "no-store" }).catch(() => null),
       ]);
 
-      const memoryData = (await memoryResponse?.json().catch(() => null)) as
-        | { memories?: LocalMemoryStore }
-        | null;
       const assetData = (await assetResponse?.json().catch(() => null)) as
         | { assets?: CityAssetStore }
         | null;
 
       if (cancelled) return;
-      if (memoryData?.memories) setLocalMemories(memoryData.memories);
+      if (memoryData) setLocalMemories(memoryData);
       if (assetData?.assets) setCityAssets(assetData.assets);
     }
 
@@ -562,17 +560,18 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
     : null;
 
   const handleSaveMemory = async (cityId: string, memory: Memory) => {
-    if (!isAdmin) throw new Error("Login required");
+    if (!isLoggedIn) throw new Error("Login required");
 
     const response = await apiFetch("/memories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memory }),
+      body: JSON.stringify({ memory: await encryptMemoryForSave(memory) }),
     });
 
     if (!response.ok) throw new Error("Failed to save memory");
 
-    const data = (await response.json()) as { memory: Memory; memories: LocalMemoryStore };
+    const rawData = (await response.json()) as { memory: Memory; memories: LocalMemoryStore };
+    const data = { ...rawData, memories: await decryptMemoryStore(rawData.memories) };
 
     setLocalMemories(() => {
       localMemoriesRef.current = data.memories;
@@ -583,7 +582,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
   };
 
   const handleSetMemoryCover = async (cityId: string, memoryId: string, coverImage: string) => {
-    if (!isAdmin) throw new Error("Login required");
+    if (!isLoggedIn) throw new Error("Login required");
 
     const response = await apiFetch("/memories", {
       method: "PATCH",
@@ -593,7 +592,8 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
 
     if (!response.ok) throw new Error("Failed to update memory cover");
 
-    const data = (await response.json()) as { memory: Memory; memories: LocalMemoryStore };
+    const rawData = (await response.json()) as { memory: Memory; memories: LocalMemoryStore };
+    const data = { ...rawData, memories: await decryptMemoryStore(rawData.memories) };
 
     setLocalMemories(() => {
       localMemoriesRef.current = data.memories;
@@ -604,17 +604,18 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
   };
 
   const handleUpdateMemory = async (cityId: string, memoryId: string, memory: Memory) => {
-    if (!isAdmin) throw new Error("Login required");
+    if (!isLoggedIn) throw new Error("Login required");
 
     const response = await apiFetch("/memories", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cityId, memoryId, memory }),
+      body: JSON.stringify({ cityId, memoryId, memory: await encryptMemoryForSave(memory) }),
     });
 
     if (!response.ok) throw new Error("Failed to update memory");
 
-    const data = (await response.json()) as { memory: Memory; memories: LocalMemoryStore };
+    const rawData = (await response.json()) as { memory: Memory; memories: LocalMemoryStore };
+    const data = { ...rawData, memories: await decryptMemoryStore(rawData.memories) };
 
     setLocalMemories(() => {
       localMemoriesRef.current = data.memories;
@@ -625,7 +626,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
   };
 
   const handleDeleteMemory = async (cityId: string, memoryId: string) => {
-    if (!isAdmin) throw new Error("Login required");
+    if (!isLoggedIn) throw new Error("Login required");
 
     const response = await apiFetch("/memories", {
       method: "DELETE",
@@ -635,7 +636,8 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
 
     if (!response.ok) throw new Error("Failed to delete memory");
 
-    const data = (await response.json()) as { memories: LocalMemoryStore };
+    const rawData = (await response.json()) as { memories: LocalMemoryStore };
+    const data = { memories: await decryptMemoryStore(rawData.memories) };
 
     setLocalMemories(() => {
       localMemoriesRef.current = data.memories;
@@ -646,7 +648,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
   };
 
   const handleSaveCityAsset = async (cityId: string, image: string) => {
-    if (!isAdmin) throw new Error("Login required");
+    if (!isLoggedIn) throw new Error("Login required");
 
     const response = await apiFetch("/city-assets", {
       method: "PUT",
@@ -661,7 +663,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
   };
 
   const handleDeleteCityAsset = async (cityId: string) => {
-    if (!isAdmin) throw new Error("Login required");
+    if (!isLoggedIn) throw new Error("Login required");
 
     const response = await apiFetch("/city-assets", {
       method: "DELETE",
@@ -987,7 +989,7 @@ export default function ProvinceMap({ province, width = 1120, height = 760 }: Pr
           isLit={litCityIds.has(selectedCity.id)}
           anchor={cardAnchor}
           tagSuggestions={allMemoryTags}
-          isAdmin={isAdmin}
+          isLoggedIn={isLoggedIn}
           onClose={() => setSelectedCityId(null)}
           onSave={handleSaveMemory}
         onSetCover={handleSetMemoryCover}
@@ -1093,7 +1095,7 @@ function MemoryCard({
   isLit,
   anchor,
   tagSuggestions,
-  isAdmin,
+  isLoggedIn,
   onClose,
   onSave,
   onSetCover,
@@ -1109,7 +1111,7 @@ function MemoryCard({
   isLit: boolean;
   anchor: CardAnchor | null;
   tagSuggestions: string[];
-  isAdmin: boolean;
+  isLoggedIn: boolean;
   onClose: () => void;
   onSave: (cityId: string, memory: Memory) => Promise<void>;
   onSetCover: (cityId: string, memoryId: string, coverImage: string) => Promise<void>;
@@ -1136,7 +1138,7 @@ function MemoryCard({
     () => new Set(localMemories.map((item) => item.id)),
     [localMemories],
   );
-  const [formOpen, setFormOpen] = useState(!isLit && isAdmin);
+  const [formOpen, setFormOpen] = useState(!isLit && isLoggedIn);
   const [date, setDate] = useState("");
   const [text, setText] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -1169,7 +1171,7 @@ function MemoryCard({
   const normalizedDate = normalizeMemoryDate(trimmedDate);
   const dateInvalid = trimmedDate.length > 0 && !normalizedDate;
   const canSave =
-    isAdmin &&
+    isLoggedIn &&
     Boolean(normalizedDate) &&
     trimmedText.length > 0 &&
     !isReadingPhoto &&
@@ -1202,7 +1204,7 @@ function MemoryCard({
   };
 
   const startEdit = (record: Memory) => {
-    if (!isAdmin) return;
+    if (!isLoggedIn) return;
 
     photoReadTokenRef.current += 1;
     revokePhotoDrafts(photoDraftsRef.current);
@@ -1226,7 +1228,7 @@ function MemoryCard({
   };
 
   const handleDelete = async (record: Memory) => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setDeleteError("请先登录后再删除");
       return;
     }
@@ -1269,7 +1271,7 @@ function MemoryCard({
   }, []);
 
   const handlePickFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       event.target.value = "";
       setPhotoError("请先登录后再上传照片");
       return;
@@ -1320,7 +1322,7 @@ function MemoryCard({
   };
 
   const handlePolishMemory = async () => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setPolishError("请先登录后再润色");
       return;
     }
@@ -1354,7 +1356,7 @@ function MemoryCard({
 
   const handlePickLandmark = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       if (landmarkInputRef.current) landmarkInputRef.current.value = "";
       setLandmarkError("请先登录后再上传地标图");
       return;
@@ -1381,7 +1383,7 @@ function MemoryCard({
   };
 
   const handleDeleteLandmark = async () => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setLandmarkError("请先登录后再删除地标图");
       return;
     }
@@ -1403,7 +1405,7 @@ function MemoryCard({
   };
 
   const handleSave = async () => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setSaveError("请先登录后再保存");
       return;
     }
@@ -1451,7 +1453,7 @@ function MemoryCard({
   };
 
   const handleSetCover = async (photo: string) => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setCoverError("请先登录后再设置封面");
       return;
     }
@@ -1502,7 +1504,7 @@ function MemoryCard({
           <p className="mt-3 text-sm text-[#5A6670]/76">
             {memory?.date ?? "添加回忆后点亮"}
           </p>
-          {!isAdmin && (
+          {!isLoggedIn && (
             <p className="mt-2 text-xs font-semibold text-[#5A6670]/42">未登录，无法修改回忆</p>
           )}
         </div>
@@ -1567,14 +1569,14 @@ function MemoryCard({
               type="file"
               accept="image/*"
               onChange={handlePickLandmark}
-              disabled={!isAdmin}
+              disabled={!isLoggedIn}
             />
             <div className="mt-3 flex gap-2">
               <button
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-[6px] border border-[#A8C8DC] px-3 py-2 text-xs font-semibold text-[#A8C8DC] transition hover:bg-[#D6E8F0]/34 disabled:opacity-45"
                 type="button"
                 onClick={() => landmarkInputRef.current?.click()}
-                disabled={landmarkSaving || !isAdmin}
+                disabled={landmarkSaving || !isLoggedIn}
               >
                 <ImagePlus className="h-3.5 w-3.5" />
                 {hasCustomLandmark ? "替换地标" : "上传地标"}
@@ -1584,7 +1586,7 @@ function MemoryCard({
                   className="grid h-8 w-8 place-items-center rounded-[6px] border border-[#F5DCE0] text-[#E8B8C2] transition hover:bg-[#F5DCE0]/45 disabled:opacity-45"
                   type="button"
                   onClick={handleDeleteLandmark}
-                  disabled={landmarkSaving || !isAdmin}
+                  disabled={landmarkSaving || !isLoggedIn}
                   aria-label="删除自定义地标图"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -1624,7 +1626,7 @@ function MemoryCard({
                     type="button"
                     onClick={() => handleSetCover(photo)}
                     aria-label={isCover ? "当前封面" : `将第 ${index + 1} 张照片设为封面`}
-                    disabled={!isAdmin || isCover || Boolean(settingCover)}
+                    disabled={!isLoggedIn || isCover || Boolean(settingCover)}
                   >
                     <MemoryImage src={photo} alt={`${city.name} memory photo ${index + 1}`} fit="cover" />
                     <span
@@ -1664,7 +1666,7 @@ function MemoryCard({
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-[6px] border border-[#D8DDD8] px-3 py-2 text-xs font-medium text-[#5A6670]/70 transition hover:border-[#A8C8DC] hover:text-[#A8C8DC]"
                 type="button"
                 onClick={() => startEdit(memory)}
-                disabled={!isAdmin}
+                disabled={!isLoggedIn}
               >
                 <Pencil className="h-3.5 w-3.5" />
                 编辑
@@ -1673,7 +1675,7 @@ function MemoryCard({
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-[6px] border border-[#F5DCE0] px-3 py-2 text-xs font-medium text-[#E8B8C2] transition hover:bg-[#F5DCE0]/55 disabled:opacity-45"
                 type="button"
                 onClick={() => handleDelete(memory)}
-                disabled={!isAdmin || deletingMemoryId === memory.id}
+                disabled={!isLoggedIn || deletingMemoryId === memory.id}
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 {deletingMemoryId === memory.id ? "删除中" : "删除"}
@@ -1735,7 +1737,7 @@ function MemoryCard({
                             className="grid h-6 w-6 place-items-center rounded-[5px] text-[#5A6670]/46 transition hover:bg-[#D6E8F0]/34 hover:text-[#A8C8DC]"
                             type="button"
                             onClick={() => startEdit(record)}
-                            disabled={!isAdmin}
+                            disabled={!isLoggedIn}
                             aria-label={`编辑 ${record.city} ${record.date} 回忆`}
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -1744,7 +1746,7 @@ function MemoryCard({
                             className="grid h-6 w-6 place-items-center rounded-[5px] text-[#5A6670]/46 transition hover:bg-[#F5DCE0]/46 hover:text-[#E8B8C2] disabled:opacity-40"
                             type="button"
                             onClick={() => handleDelete(record)}
-                            disabled={!isAdmin || deletingMemoryId === record.id}
+                            disabled={!isLoggedIn || deletingMemoryId === record.id}
                             aria-label={`删除 ${record.city} ${record.date} 回忆`}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -1784,7 +1786,7 @@ function MemoryCard({
           className="mt-4 flex w-full items-center gap-2 border-t border-dashed border-[#D8DDD8] pt-4 text-sm font-medium text-[#5A6670]/78 transition hover:text-[#A8C8DC]"
           type="button"
           onClick={() => setFormOpen(true)}
-          disabled={!isAdmin}
+          disabled={!isLoggedIn}
         >
           <Plus className="h-4 w-4" />
           {isLit ? "Add memory" : "Add memory to light"}
@@ -1813,7 +1815,7 @@ function MemoryCard({
                   inputMode="numeric"
                   maxLength={10}
                   aria-invalid={dateInvalid}
-                  disabled={!isAdmin}
+                  disabled={!isLoggedIn}
                 />
                 {dateInvalid && (
                   <span className="mt-1.5 block text-xs text-[#E8B8C2]">
@@ -1840,7 +1842,7 @@ function MemoryCard({
                   }}
                   placeholder="写下这一刻……"
                   maxLength={memoryTextMaxLength}
-                  disabled={!isAdmin}
+                  disabled={!isLoggedIn}
                 />
               </label>
 
@@ -1853,7 +1855,7 @@ function MemoryCard({
                       className="rounded-full border border-[#F5DCE0] bg-[#F5DCE0]/48 px-2.5 py-1 text-xs font-semibold text-[#D86F82]"
                       type="button"
                       onClick={() => removeTag(tag)}
-                      disabled={!isAdmin}
+                      disabled={!isLoggedIn}
                       aria-label={`移除标签 ${tag}`}
                     >
                       #{tag} ×
@@ -1870,7 +1872,7 @@ function MemoryCard({
                       }
                     }}
                     placeholder="输入后回车"
-                    disabled={!isAdmin || tags.length >= maxTagsPerMemory}
+                    disabled={!isLoggedIn || tags.length >= maxTagsPerMemory}
                   />
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1883,7 +1885,7 @@ function MemoryCard({
                         className="rounded-full border border-[#D8DDD8] bg-white/42 px-2.5 py-1 text-[11px] font-semibold text-[#5A6670]/58 transition hover:border-[#F5DCE0] hover:text-[#D86F82]"
                         type="button"
                         onClick={() => addTag(tag)}
-                        disabled={!isAdmin || tags.length >= maxTagsPerMemory}
+                        disabled={!isLoggedIn || tags.length >= maxTagsPerMemory}
                       >
                         + {tag}
                       </button>
@@ -1896,7 +1898,7 @@ function MemoryCard({
                   className="inline-flex min-h-9 items-center gap-2 rounded-[6px] border border-[#F5DCE0] bg-[#F5DCE0]/42 px-3 text-xs font-semibold text-[#E8B8C2] transition hover:bg-[#F5DCE0]/70 disabled:cursor-not-allowed disabled:opacity-45"
                   type="button"
                   onClick={handlePolishMemory}
-                  disabled={!isAdmin || !trimmedText || polishing}
+                  disabled={!isLoggedIn || !trimmedText || polishing}
                 >
                   {polishing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
                   {polishing ? "润色中" : "AI 润色"}
@@ -1949,13 +1951,13 @@ function MemoryCard({
                   accept="image/*"
                   multiple
                   onChange={handlePickFile}
-                  disabled={!isAdmin}
+                  disabled={!isLoggedIn}
                 />
                 <button
                   className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-[6px] border border-dashed border-[#D8DDD8] bg-[#FAFBF7] px-3 py-3 text-sm text-[#5A6670]/70 transition hover:border-[#E8B8C2] hover:text-[#E8B8C2]"
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={!isAdmin}
+                  disabled={!isLoggedIn}
                 >
                   {photoDrafts.length > 0 ? (
                     <span className="relative w-full">

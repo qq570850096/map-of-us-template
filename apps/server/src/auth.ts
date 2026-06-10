@@ -30,11 +30,6 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
   }
 }
 
-export async function requireOwner(request: FastifyRequest, reply: FastifyReply) {
-  const auth = (request as AuthenticatedRequest).auth;
-  if (auth?.role !== "owner") return reply.code(403).send({ error: "Owner permission required" });
-}
-
 export async function registerAuthRoutes(app: FastifyInstance) {
   app.post("/auth/login", async (request, reply) => {
     const payload = loginPayloadSchema.safeParse(request.body);

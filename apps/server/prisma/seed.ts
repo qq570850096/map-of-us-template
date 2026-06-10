@@ -18,7 +18,7 @@ const users = [
     username: config.DEFAULT_USER_1_USERNAME,
     password: config.DEFAULT_USER_1_PASSWORD,
     displayName: config.DEFAULT_USER_1_DISPLAY_NAME,
-    role: "owner" as const,
+    role: "member" as const,
   },
   {
     username: config.DEFAULT_USER_2_USERNAME,

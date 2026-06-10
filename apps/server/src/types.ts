@@ -3,7 +3,7 @@ import type { FastifyRequest } from "fastify";
 export type AuthContext = {
   userId: string;
   spaceId: string;
-  role: "owner" | "member";
+  role: "member";
 };
 
 export type AuthenticatedRequest = FastifyRequest & {

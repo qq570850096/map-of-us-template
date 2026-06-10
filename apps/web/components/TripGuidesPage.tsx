@@ -16,6 +16,8 @@ import {
 import { MemoryPageShell } from "@/components/MemoryNav";
 import { ApiError, apiJson } from "@/lib/apiClient";
 import { readSession } from "@/lib/authStore";
+import { decryptTripPayload, encryptTripPayloadForSave } from "@/lib/privateData";
+import { hasPrivacyKey } from "@/lib/e2ee";
 
 type TravelStyle = "relaxed" | "balanced" | "packed";
 type JobStatus = "queued" | "running" | "needs_confirmation" | "completed" | "failed";
@@ -256,9 +258,19 @@ export default function TripGuidesPage() {
   const [status, setStatus] = useState("");
   const [aiOpen, setAiOpen] = useState(false);
 
-  const applyTripGuideResponse = (data: { guides: TripGuide[]; drafts: TripDraft[] }) => {
-    const nextGuides = data.guides.map((guide) => ({ ...guide, payload: normalizePayload(guide.payload) }));
-    const nextDrafts = data.drafts.map((draft) => ({ ...draft, payload: normalizePayload(draft.payload) }));
+  const applyTripGuideResponse = async (data: { guides: TripGuide[]; drafts: TripDraft[] }) => {
+    const nextGuides = await Promise.all(
+      data.guides.map(async (guide) => ({
+        ...guide,
+        payload: normalizePayload(await decryptTripPayload(guide.payload, emptyPayload())),
+      })),
+    );
+    const nextDrafts = await Promise.all(
+      data.drafts.map(async (draft) => ({
+        ...draft,
+        payload: normalizePayload(await decryptTripPayload(draft.payload, emptyPayload())),
+      })),
+    );
     setGuides(nextGuides);
     setDrafts(nextDrafts);
     setSelected((current) => {
@@ -272,7 +284,7 @@ export default function TripGuidesPage() {
     if (showLoading) setLoading(true);
     try {
       const data = await apiJson<{ guides: TripGuide[]; drafts: TripDraft[] }>("/trip-guides");
-      applyTripGuideResponse(data);
+      await applyTripGuideResponse(data);
     } catch (error) {
       setStatus(errorMessage(error, "旅行攻略加载失败，请确认后端服务可用。"));
     } finally {
@@ -284,7 +296,7 @@ export default function TripGuidesPage() {
     let cancelled = false;
     apiJson<{ guides: TripGuide[]; drafts: TripDraft[] }>("/trip-guides")
       .then((data) => {
-        if (!cancelled) applyTripGuideResponse(data);
+        if (!cancelled) void applyTripGuideResponse(data);
       })
       .catch((error) => {
         if (!cancelled) setStatus(errorMessage(error, "旅行攻略加载失败，请确认后端服务可用。"));
@@ -324,21 +336,21 @@ export default function TripGuidesPage() {
       if (selected.kind === "guide") {
         const data = await apiJson<{ guide: TripGuide }>(`/trip-guides/${selected.id}`, {
           method: "PATCH",
-          body: JSON.stringify({ payload }),
+          body: JSON.stringify({ payload: await encryptTripPayloadForSave(payload) }),
         });
-        setSelected({ kind: "guide", id: data.guide.id, payload: normalizePayload(data.guide.payload) });
+        setSelected({ kind: "guide", id: data.guide.id, payload: normalizePayload(await decryptTripPayload(data.guide.payload, emptyPayload())) });
       } else if (selected.kind === "draft") {
         const data = await apiJson<{ draft: TripDraft }>(`/trip-guide-drafts/${selected.id}`, {
           method: "PATCH",
-          body: JSON.stringify({ payload }),
+          body: JSON.stringify({ payload: await encryptTripPayloadForSave(payload) }),
         });
-        setSelected({ kind: "draft", id: data.draft.id, payload: normalizePayload(data.draft.payload) });
+        setSelected({ kind: "draft", id: data.draft.id, payload: normalizePayload(await decryptTripPayload(data.draft.payload, emptyPayload())) });
       } else {
         const data = await apiJson<{ guide: TripGuide }>("/trip-guides", {
           method: "POST",
-          body: JSON.stringify({ payload }),
+          body: JSON.stringify({ payload: await encryptTripPayloadForSave(payload) }),
         });
-        setSelected({ kind: "guide", id: data.guide.id, payload: normalizePayload(data.guide.payload) });
+        setSelected({ kind: "guide", id: data.guide.id, payload: normalizePayload(await decryptTripPayload(data.guide.payload, emptyPayload())) });
       }
       setStatus("旅行攻略已保存。");
       await load();
@@ -359,6 +371,10 @@ export default function TripGuidesPage() {
     setWorking("accept");
     setStatus("");
     try {
+      await apiJson<{ draft: TripDraft }>(`/trip-guide-drafts/${selected.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ payload: await encryptTripPayloadForSave(payloadForSave(selected.payload)) }),
+      });
       await apiJson<{ ok: true; guide: TripGuide }>(`/trip-guide-drafts/${selected.id}/accept`, { method: "POST" });
       setStatus("草稿已保存为正式攻略。");
       setSelected({ kind: "new", id: "new", payload: emptyPayload() });
@@ -484,9 +500,23 @@ export default function TripGuidesPage() {
           onClose={() => setAiOpen(false)}
           onCreated={async (draft) => {
             setAiOpen(false);
+            let nextDraft = draft;
+            let encryptionNotice = "";
+            if (hasPrivacyKey()) {
+              try {
+                const encryptedPayload = await encryptTripPayloadForSave(payloadForSave(normalizePayload(draft.payload)));
+                const data = await apiJson<{ draft: TripDraft }>(`/trip-guide-drafts/${draft.id}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({ payload: encryptedPayload }),
+                });
+                nextDraft = data.draft;
+              } catch {
+                encryptionNotice = "AI 草稿已生成，但隐私密钥未解锁，草稿暂未加密；请解锁后保存。";
+              }
+            }
             await load();
-            setSelected({ kind: "draft", id: draft.id, payload: normalizePayload(draft.payload) });
-            setStatus("AI 草稿已生成，可以继续编辑后保存。");
+            setSelected({ kind: "draft", id: nextDraft.id, payload: normalizePayload(await decryptTripPayload(nextDraft.payload, emptyPayload())) });
+            setStatus(encryptionNotice || "AI 草稿已生成，可以继续编辑后保存。");
           }}
         />
       ) : null}

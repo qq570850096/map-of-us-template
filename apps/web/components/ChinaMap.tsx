@@ -19,7 +19,7 @@ import {
   type LocalMemoryStore,
 } from "@/data/progress";
 import { provinces } from "@/data/provinces";
-import { apiFetch } from "@/lib/apiClient";
+import { fetchDecryptedMemoryStore } from "@/lib/privateData";
 
 interface ChinaMapProps {
   width?: number;
@@ -105,14 +105,8 @@ export default function ChinaMap({ width = 1100, height = 860, className }: Chin
     };
 
     async function loadLocalMemories() {
-      const response = await apiFetch("/memories", { cache: "no-store" }).catch(() => null);
-      if (!response?.ok) return;
-
-      const data = (await response.json().catch(() => null)) as
-        | { memories?: LocalMemoryStore }
-        | null;
-
-      if (!cancelled && data?.memories) setLocalMemories(data.memories);
+      const memories = await fetchDecryptedMemoryStore();
+      if (!cancelled && memories) setLocalMemories(memories);
     }
 
     window.addEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);

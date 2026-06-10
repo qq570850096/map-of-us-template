@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const spaceRoles = ["owner", "member"] as const;
+export const spaceRoles = ["member"] as const;
 export const draftStatuses = ["draft", "accepted", "rejected"] as const;
 export const auxiliaryKinds = ["favorite", "anniversary", "capsule"] as const;
 
@@ -88,7 +88,7 @@ export const memoryUpsertPayloadSchema = z.object({
     .extend({
       cityId: z.string().min(1),
       date: z.string().min(1),
-      text: z.string().min(1).max(500),
+      text: z.string().min(1).max(4000),
       tags: z.array(z.string()).optional(),
       image: z.string().optional(),
       photos: z.array(z.string()).optional(),

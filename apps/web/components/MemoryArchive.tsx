@@ -25,10 +25,11 @@ import {
   memoryStoreUpdatedEvent,
   type LocalMemoryStore,
 } from "@/data/progress";
-import { adminModeUpdatedEvent } from "@/data/adminMode";
+import { loginStateUpdatedEvent } from "@/data/loginState";
 import { LocalPrivacyImage, LocalPrivacyImg } from "@/components/LocalPrivacyImage";
 import { apiFetch } from "@/lib/apiClient";
 import { readSession } from "@/lib/authStore";
+import { decryptMemoryStore, encryptMemoryForSave, fetchDecryptedMemoryStore } from "@/lib/privateData";
 
 type ArchiveView = "city" | "timeline" | "tag";
 type MemoryItem = {
@@ -131,27 +132,27 @@ async function readCompressedImageDataUrl(file: File) {
   return readBlobAsDataUrl(blob);
 }
 
-const useAdminMode = () => {
-  const [isAdmin, setIsAdmin] = useState(false);
+const useLoginState = () => {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
-    const syncLoginState = () => setIsAdmin(Boolean(readSession()));
+    const syncLoginState = () => setIsLoggedIn(Boolean(readSession()));
     const timer = window.setTimeout(syncLoginState, 0);
-    const handleAdminMode = (event: Event) => {
-      setIsAdmin(Boolean((event as CustomEvent<boolean>).detail));
+    const handleLoginState = (event: Event) => {
+      setIsLoggedIn(Boolean((event as CustomEvent<boolean>).detail));
     };
 
-    window.addEventListener(adminModeUpdatedEvent, handleAdminMode);
+    window.addEventListener(loginStateUpdatedEvent, handleLoginState);
     window.addEventListener("storage", syncLoginState);
 
     return () => {
       window.clearTimeout(timer);
-      window.removeEventListener(adminModeUpdatedEvent, handleAdminMode);
+      window.removeEventListener(loginStateUpdatedEvent, handleLoginState);
       window.removeEventListener("storage", syncLoginState);
     };
   }, []);
 
-  return isAdmin;
+  return isLoggedIn;
 };
 
 const memoryMonthLabel = (memory: Memory) => {
@@ -192,13 +193,13 @@ function MemoryImage({ memory }: Readonly<{ memory: Memory }>) {
 
 function NewMemoryDialog({
   open,
-  isAdmin,
+  isLoggedIn,
   tagSuggestions,
   onClose,
   onSaved,
 }: Readonly<{
   open: boolean;
-  isAdmin: boolean;
+  isLoggedIn: boolean;
   tagSuggestions: string[];
   onClose: () => void;
   onSaved: (memories: LocalMemoryStore) => void;
@@ -228,7 +229,7 @@ function NewMemoryDialog({
   const photoReadTokenRef = useRef(0);
 
   const readyPhotos = photoDrafts.map((photo) => photo.dataUrl).filter((photo): photo is string => Boolean(photo));
-  const canSave = isAdmin && Boolean(city) && Boolean(date) && text.trim().length > 0 && !isReadingPhoto && !isSaving;
+  const canSave = isLoggedIn && Boolean(city) && Boolean(date) && text.trim().length > 0 && !isReadingPhoto && !isSaving;
 
   const resetForm = (revokePhotos: boolean) => {
     photoReadTokenRef.current += 1;
@@ -277,7 +278,7 @@ function NewMemoryDialog({
   if (!open) return null;
 
   const handlePickFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       event.target.value = "";
       setPhotoError("请先登录后再上传照片");
       return;
@@ -321,7 +322,7 @@ function NewMemoryDialog({
   };
 
   const handlePolishMemory = async () => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setPolishError("请先登录后再润色");
       return;
     }
@@ -354,7 +355,7 @@ function NewMemoryDialog({
   };
 
   const handleSave = async () => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setSaveError("请先登录后再保存");
       return;
     }
@@ -364,26 +365,25 @@ function NewMemoryDialog({
     setSaveError("");
 
     try {
+      const memory = await encryptMemoryForSave({
+        cityId: city.id,
+        city: city.name,
+        cityEn: city.nameEn,
+        date: inputDateToDotDate(date),
+        text: text.trim(),
+        tags: normalizeMemoryTags(tags),
+        image: readyPhotos[0],
+        photos: readyPhotos,
+      } as Memory);
       const response = await apiFetch("/memories", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          memory: {
-            cityId: city.id,
-            city: city.name,
-            cityEn: city.nameEn,
-            date: inputDateToDotDate(date),
-            text: text.trim(),
-            tags: normalizeMemoryTags(tags),
-            image: readyPhotos[0],
-            photos: readyPhotos,
-          },
-        }),
+        body: JSON.stringify({ memory }),
       });
       if (!response.ok) throw new Error("Failed to save memory");
       const data = (await response.json()) as { memories?: LocalMemoryStore };
       if (!data.memories) throw new Error("Missing memory store");
-      onSaved(data.memories);
+      onSaved(await decryptMemoryStore(data.memories));
       resetForm(true);
       onClose();
     } catch {
@@ -405,7 +405,7 @@ function NewMemoryDialog({
           <div>
             <p className="text-xs font-semibold text-[#D86F82]/70">快速新增</p>
             <h2 className="mt-1 text-xl font-semibold text-[#5A6670]">写一条新的回忆</h2>
-            {!isAdmin ? <p className="mt-2 text-xs font-semibold text-[#D86F82]">请先登录后再编辑。</p> : null}
+            {!isLoggedIn ? <p className="mt-2 text-xs font-semibold text-[#D86F82]">请先登录后再编辑。</p> : null}
           </div>
           <button
             className="grid h-10 w-10 place-items-center rounded-[10px] border border-[#D8DDD8] text-[#5A6670]/62 transition hover:bg-white/68"
@@ -429,7 +429,7 @@ function NewMemoryDialog({
                   setProvinceId(nextProvinceId);
                   setCityId(cities.find((item) => item.provinceId === nextProvinceId)?.id ?? "");
                 }}
-                disabled={!isAdmin}
+                disabled={!isLoggedIn}
               >
                 {provinces.map((province) => (
                   <option key={province.id} value={province.id}>
@@ -444,7 +444,7 @@ function NewMemoryDialog({
                 className="min-h-11 rounded-[9px] border border-[#D8DDD8] bg-white/68 px-3 text-sm text-[#5A6670] outline-none transition focus:border-[#A8C8DC]"
                 value={cityId}
                 onChange={(event) => setCityId(event.target.value)}
-                disabled={!isAdmin}
+                disabled={!isLoggedIn}
               >
                 {cityOptions.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -460,7 +460,7 @@ function NewMemoryDialog({
                 type="date"
                 value={date}
                 onChange={(event) => setDate(event.target.value)}
-                disabled={!isAdmin}
+                disabled={!isLoggedIn}
               />
             </label>
           </div>
@@ -480,7 +480,7 @@ function NewMemoryDialog({
               }}
               maxLength={memoryTextMaxLength}
               placeholder="不用点地图，直接把今天这一刻写下来……"
-              disabled={!isAdmin}
+              disabled={!isLoggedIn}
             />
           </label>
 
@@ -489,7 +489,7 @@ function NewMemoryDialog({
               className="inline-flex min-h-10 items-center gap-2 rounded-[8px] border border-[#F5DCE0] bg-[#F5DCE0]/42 px-3 text-xs font-semibold text-[#D86F82] transition hover:bg-[#F5DCE0]/70 disabled:cursor-not-allowed disabled:opacity-45"
               type="button"
               onClick={handlePolishMemory}
-              disabled={!isAdmin || !text.trim() || polishing}
+              disabled={!isLoggedIn || !text.trim() || polishing}
             >
               {polishing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               {polishing ? "润色中" : "AI 润色"}
@@ -542,7 +542,7 @@ function NewMemoryDialog({
                   className="rounded-full border border-[#F5DCE0] bg-[#F5DCE0]/48 px-2.5 py-1 text-xs font-semibold text-[#D86F82]"
                   type="button"
                   onClick={() => removeTag(tag)}
-                  disabled={!isAdmin}
+                  disabled={!isLoggedIn}
                   aria-label={`移除标签 ${tag}`}
                 >
                   #{tag} x
@@ -559,7 +559,7 @@ function NewMemoryDialog({
                   }
                 }}
                 placeholder="输入后回车"
-                disabled={!isAdmin || tags.length >= maxTagsPerMemory}
+                disabled={!isLoggedIn || tags.length >= maxTagsPerMemory}
               />
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -572,7 +572,7 @@ function NewMemoryDialog({
                     className="rounded-full border border-[#D8DDD8] bg-white/48 px-2.5 py-1 text-[11px] font-semibold text-[#5A6670]/58 transition hover:border-[#F5DCE0] hover:text-[#D86F82]"
                     type="button"
                     onClick={() => addTag(tag)}
-                    disabled={!isAdmin || tags.length >= maxTagsPerMemory}
+                    disabled={!isLoggedIn || tags.length >= maxTagsPerMemory}
                   >
                     + {tag}
                   </button>
@@ -593,13 +593,13 @@ function NewMemoryDialog({
                 accept="image/*"
                 multiple
                 onChange={handlePickFile}
-                disabled={!isAdmin}
+                disabled={!isLoggedIn}
               />
               <button
                 className="inline-flex min-h-10 items-center gap-2 rounded-[8px] border border-[#A8C8DC] px-3 text-xs font-semibold text-[#A8C8DC] transition hover:bg-[#D6E8F0]/34 disabled:opacity-45"
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={!isAdmin || isReadingPhoto}
+                disabled={!isLoggedIn || isReadingPhoto}
               >
                 {isReadingPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
                 {isReadingPhoto ? "读取中" : "选择照片"}
@@ -681,7 +681,7 @@ function MemoryCard({ item, compact = false }: Readonly<{ item: MemoryItem; comp
 }
 
 export default function MemoryArchive() {
-  const isAdmin = useAdminMode();
+  const isLoggedIn = useLoginState();
   const [localMemories, setLocalMemories] = useState<LocalMemoryStore>({});
   const [view, setView] = useState<ArchiveView>("city");
   const [selectedCityId, setSelectedCityId] = useState("all");
@@ -697,14 +697,8 @@ export default function MemoryArchive() {
     };
 
     async function loadLocalMemories() {
-      const response = await apiFetch("/memories", { cache: "no-store" }).catch(() => null);
-      if (!response?.ok) return;
-
-      const data = (await response.json().catch(() => null)) as
-        | { memories?: LocalMemoryStore }
-        | null;
-
-      if (!cancelled && data?.memories) setLocalMemories(data.memories);
+      const memories = await fetchDecryptedMemoryStore();
+      if (!cancelled && memories) setLocalMemories(memories);
     }
 
     window.addEventListener(memoryStoreUpdatedEvent, handleMemoryUpdate);
@@ -820,7 +814,7 @@ export default function MemoryArchive() {
                 className="inline-flex min-h-10 items-center gap-2 rounded-[8px] bg-[#273846] px-4 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(39,56,70,0.12)] transition hover:bg-[#D86F82] disabled:opacity-45"
                 type="button"
                 onClick={() => setNewMemoryOpen(true)}
-                disabled={!isAdmin}
+                disabled={!isLoggedIn}
               >
                 <Plus className="h-4 w-4" />
                 新增回忆
@@ -894,12 +888,12 @@ export default function MemoryArchive() {
                   className="mt-6 inline-flex items-center gap-2 rounded-[8px] border border-[#A8C8DC] bg-[#FAFBF7]/78 px-5 py-3 text-sm font-semibold text-[#A8C8DC] transition hover:bg-[#D6E8F0]/34 disabled:opacity-45"
                   type="button"
                   onClick={() => setNewMemoryOpen(true)}
-                  disabled={!isAdmin}
+                  disabled={!isLoggedIn}
                 >
                   <Plus className="h-4 w-4" />
                   新增第一条回忆
                 </button>
-                {!isAdmin ? <p className="mt-3 text-xs font-semibold text-[#D86F82]">请先登录后再编辑。</p> : null}
+                {!isLoggedIn ? <p className="mt-3 text-xs font-semibold text-[#D86F82]">请先登录后再编辑。</p> : null}
               </div>
             </div>
           ) : filteredMemoryItems.length === 0 ? (
@@ -978,7 +972,7 @@ export default function MemoryArchive() {
           )}
           <NewMemoryDialog
             open={newMemoryOpen}
-            isAdmin={isAdmin}
+            isLoggedIn={isLoggedIn}
             tagSuggestions={allTags}
             onClose={() => setNewMemoryOpen(false)}
             onSaved={handleMemorySaved}

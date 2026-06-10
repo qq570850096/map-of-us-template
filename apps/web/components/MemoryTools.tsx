@@ -12,6 +12,8 @@ import {
   Settings,
   ShieldCheck,
   ShieldOff,
+  Lock,
+  Unlock,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -43,11 +45,24 @@ import {
   writeLoginPhoto,
 } from "@/data/loginPhotoStore";
 import {
-  adminModeUpdatedEvent,
-} from "@/data/adminMode";
+  loginStateUpdatedEvent,
+} from "@/data/loginState";
 import { LocalPrivacyImage } from "@/components/LocalPrivacyImage";
 import { apiFetch, logout } from "@/lib/apiClient";
 import { readSession } from "@/lib/authStore";
+import {
+  decryptAuxiliaryItems,
+  encryptAuxiliaryForSave,
+  fetchDecryptedMemoryStore,
+} from "@/lib/privateData";
+import {
+  enablePrivacyKey,
+  lockPrivacyKey,
+  privacyStateUpdatedEvent,
+  readPrivacyState,
+  resetPrivacyKeyForThisDevice,
+  unlockPrivacyKey,
+} from "@/lib/e2ee";
 
 type StoredItem = {
   id: string;
@@ -116,27 +131,27 @@ const loginPhotoSlots = [
   { id: "jinan", city: "济南", label: "泉边小记", fallback: loginPhotoFallback("jinan") },
 ] as const;
 
-const useAdminMode = () => {
-  const [isAdmin, setIsAdmin] = useState(false);
+const useLoginState = () => {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
-    const syncLoginState = () => setIsAdmin(Boolean(readSession()));
+    const syncLoginState = () => setIsLoggedIn(Boolean(readSession()));
     const timer = window.setTimeout(syncLoginState, 0);
-    const handleAdminMode = (event: Event) => {
-      setIsAdmin(Boolean((event as CustomEvent<boolean>).detail));
+    const handleLoginState = (event: Event) => {
+      setIsLoggedIn(Boolean((event as CustomEvent<boolean>).detail));
     };
 
-    window.addEventListener(adminModeUpdatedEvent, handleAdminMode);
+    window.addEventListener(loginStateUpdatedEvent, handleLoginState);
     window.addEventListener("storage", syncLoginState);
 
     return () => {
       window.clearTimeout(timer);
-      window.removeEventListener(adminModeUpdatedEvent, handleAdminMode);
+      window.removeEventListener(loginStateUpdatedEvent, handleLoginState);
       window.removeEventListener("storage", syncLoginState);
     };
   }, []);
 
-  return isAdmin;
+  return isLoggedIn;
 };
 
 const imageFileToSettingImage = (file: File) =>
@@ -276,7 +291,7 @@ const anniversaryPayload = (value: unknown): AnniversaryPayload => {
 
 function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
   const Icon = config.icon;
-  const isAdmin = useAdminMode();
+  const isLoggedIn = useLoginState();
   const [items, setItems] = useState<StoredItem[]>([]);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
@@ -289,15 +304,15 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
   const load = async () => {
     const response = await apiFetch(`/${config.kind === "favorite" ? "favorites" : config.kind === "anniversary" ? "anniversaries" : "capsules"}`, { cache: "no-store" }).catch(() => null);
     const data = (await response?.json().catch(() => null)) as { items?: StoredItem[] } | null;
-    if (data?.items) setItems(data.items);
+    if (data?.items) setItems(await decryptAuxiliaryItems(data.items));
   };
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void apiFetch(`/${config.kind === "favorite" ? "favorites" : config.kind === "anniversary" ? "anniversaries" : "capsules"}`, { cache: "no-store" })
         .then((response) => response.json())
-        .then((data: { items?: StoredItem[] }) => {
-          if (data.items) setItems(data.items);
+        .then(async (data: { items?: StoredItem[] }) => {
+          if (data.items) setItems(await decryptAuxiliaryItems(data.items));
         })
         .catch(() => {});
     }, 0);
@@ -315,7 +330,7 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
   };
 
   const save = async () => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setStatus("请先登录后再保存");
       return;
     }
@@ -327,14 +342,14 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
       const response = await apiFetch("/auxiliary-items", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(await encryptAuxiliaryForSave({
           id: editingId || undefined,
           kind: config.kind,
           title: title.trim(),
           date: date.trim() || undefined,
           note: note.trim(),
           cityId: config.kind === "favorite" ? cityId : undefined,
-        }),
+        })),
       });
       if (!response.ok) throw new Error("Save failed");
       resetForm();
@@ -348,7 +363,7 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
   };
 
   const startEdit = (item: StoredItem) => {
-    if (!isAdmin) return;
+    if (!isLoggedIn) return;
     setEditingId(item.id);
     setTitle(item.title);
     setDate(item.date ?? "");
@@ -357,7 +372,7 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
   };
 
   const remove = async (id: string) => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setStatus("请先登录后再删除");
       return;
     }
@@ -395,21 +410,21 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
         <div className="h-fit rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] backdrop-blur sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-[#5A6670]">{editingId ? "编辑" : "新增"}</p>
-            {!isAdmin && <span className="text-xs font-semibold text-[#5A6670]/42">未登录</span>}
+            {!isLoggedIn && <span className="text-xs font-semibold text-[#5A6670]/42">未登录</span>}
           </div>
           <input
             className="mt-4 w-full rounded-[7px] border border-[#D8DDD8] bg-[#FAFBF7] px-3 py-2 text-sm outline-none transition focus:border-[#E8B8C2]"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder={config.kind === "favorite" ? "想去的地方" : "标题"}
-            disabled={!isAdmin}
+            disabled={!isLoggedIn}
           />
           {config.kind === "favorite" && (
             <select
               className="mt-3 w-full rounded-[7px] border border-[#D8DDD8] bg-[#FAFBF7] px-3 py-2 text-sm outline-none transition focus:border-[#E8B8C2]"
               value={cityId}
               onChange={(event) => setCityId(event.target.value)}
-              disabled={!isAdmin}
+              disabled={!isLoggedIn}
             >
               {cityOptions.map((city) => (
                 <option key={city.id} value={city.id}>
@@ -425,7 +440,7 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
               onChange={(event) => setDate(event.target.value)}
               placeholder="2026.05.20"
               maxLength={10}
-              disabled={!isAdmin}
+              disabled={!isLoggedIn}
             />
           )}
           <textarea
@@ -434,13 +449,13 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
             value={note}
             onChange={(event) => setNote(event.target.value)}
             placeholder="写一点备注……"
-            disabled={!isAdmin}
+            disabled={!isLoggedIn}
           />
           <button
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-[7px] bg-[#F5DCE0] px-4 py-2.5 text-sm font-semibold text-[#E8B8C2] transition hover:bg-[#E8B8C2] hover:text-[#FAFBF7] disabled:opacity-45"
             type="button"
             onClick={save}
-            disabled={!isAdmin || !canSave}
+            disabled={!isLoggedIn || !canSave}
           >
             <Plus className="h-4 w-4" />
             {working ? "保存中" : editingId ? "保存修改" : "保存"}
@@ -479,7 +494,7 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
                       type="button"
                       onClick={() => startEdit(item)}
                       aria-label="编辑"
-                      disabled={!isAdmin}
+                      disabled={!isLoggedIn}
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
@@ -488,7 +503,7 @@ function MemoryToolPage({ config }: Readonly<{ config: ToolConfig }>) {
                       type="button"
                       onClick={() => void remove(item.id)}
                       aria-label="删除"
-                      disabled={!isAdmin || working}
+                      disabled={!isLoggedIn || working}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -519,7 +534,7 @@ export function FavoritesPage() {
 }
 
 export function AnniversariesPage() {
-  const isAdmin = useAdminMode();
+  const isLoggedIn = useLoginState();
   const [items, setItems] = useState<AuxiliaryItem[]>([]);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
@@ -535,7 +550,7 @@ export function AnniversariesPage() {
   const load = async () => {
     const response = await apiFetch("/anniversaries", { cache: "no-store" }).catch(() => null);
     const data = (await response?.json().catch(() => null)) as { items?: AuxiliaryItem[] } | null;
-    if (data?.items) setItems(data.items);
+    if (data?.items) setItems(await decryptAuxiliaryItems(data.items));
   };
 
   useEffect(() => {
@@ -555,22 +570,22 @@ export function AnniversariesPage() {
   };
 
   const save = async () => {
-    if (!isAdmin || !title.trim()) {
-      setStatus(isAdmin ? "" : "请先登录后再保存");
+    if (!isLoggedIn || !title.trim()) {
+      setStatus(isLoggedIn ? "" : "请先登录后再保存");
       return;
     }
     setStatus("");
     const response = await apiFetch("/auxiliary-items", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      body: JSON.stringify(await encryptAuxiliaryForSave({
         id: editingId || undefined,
         kind: "anniversary",
         title: title.trim(),
         date: inputDateToDotDate(date),
         note: note.trim(),
         payload: { category: category.trim() || "纪念日", repeat },
-      }),
+      })),
     }).catch(() => null);
     if (!response?.ok) {
       setStatus("保存失败，请稍后再试");
@@ -582,7 +597,7 @@ export function AnniversariesPage() {
   };
 
   const startEdit = (item: AuxiliaryItem) => {
-    if (!isAdmin) return;
+    if (!isLoggedIn) return;
     const payload = anniversaryPayload(item.payload);
     setEditingId(item.id);
     setTitle(item.title);
@@ -593,7 +608,7 @@ export function AnniversariesPage() {
   };
 
   const remove = async (id: string) => {
-    if (!isAdmin) return;
+    if (!isLoggedIn) return;
     await apiFetch(`/auxiliary-items/${id}`, { method: "DELETE" }).catch(() => null);
     if (editingId === id) resetForm();
     await load();
@@ -623,14 +638,14 @@ export function AnniversariesPage() {
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="比如：第一次旅行"
-            disabled={!isAdmin}
+            disabled={!isLoggedIn}
           />
           <input
             className="mt-3 min-h-11 w-full rounded-[9px] border border-[#D8DDD8] bg-white/62 px-3 text-sm outline-none transition focus:border-[#E8B8C2]"
             type="date"
             value={date}
             onChange={(event) => setDate(event.target.value)}
-            disabled={!isAdmin}
+            disabled={!isLoggedIn}
           />
           <div className="mt-3 grid grid-cols-2 gap-2">
             <input
@@ -638,13 +653,13 @@ export function AnniversariesPage() {
               value={category}
               onChange={(event) => setCategory(event.target.value)}
               placeholder="分类"
-              disabled={!isAdmin}
+              disabled={!isLoggedIn}
             />
             <select
               className="min-h-11 rounded-[9px] border border-[#D8DDD8] bg-white/62 px-3 text-sm outline-none transition focus:border-[#E8B8C2]"
               value={repeat}
               onChange={(event) => setRepeat(event.target.value as AnniversaryRepeat)}
-              disabled={!isAdmin}
+              disabled={!isLoggedIn}
             >
               <option value="yearly">每年重复</option>
               <option value="none">只纪念一次</option>
@@ -655,13 +670,13 @@ export function AnniversariesPage() {
             value={note}
             onChange={(event) => setNote(event.target.value)}
             placeholder="写一点备注……"
-            disabled={!isAdmin}
+            disabled={!isLoggedIn}
           />
           <button
             className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-[9px] bg-[#273846] px-4 text-sm font-semibold text-white transition hover:bg-[#D86F82] disabled:opacity-45"
             type="button"
             onClick={save}
-            disabled={!isAdmin || !title.trim()}
+            disabled={!isLoggedIn || !title.trim()}
           >
             <Plus className="h-4 w-4" />
             {editingId ? "保存修改" : "保存纪念日"}
@@ -717,7 +732,7 @@ export function AnniversariesPage() {
                     className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-[9px] border border-[#D8DDD8] text-sm font-semibold text-[#5A6670]/62 transition hover:border-[#A8C8DC] hover:text-[#A8C8DC]"
                     type="button"
                     onClick={() => startEdit(item)}
-                    disabled={!isAdmin}
+                    disabled={!isLoggedIn}
                   >
                     <Pencil className="h-4 w-4" />
                     编辑
@@ -726,7 +741,7 @@ export function AnniversariesPage() {
                     className="grid min-h-10 w-11 place-items-center rounded-[9px] border border-[#F5DCE0] text-[#D86F82] transition hover:bg-[#F5DCE0]/48"
                     type="button"
                     onClick={() => remove(item.id)}
-                    disabled={!isAdmin}
+                    disabled={!isLoggedIn}
                     aria-label="删除纪念日"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -751,7 +766,7 @@ export function TimeCapsulePage() {
 }
 
 export function SettingsPage() {
-  const isAdmin = useAdminMode();
+  const isLoggedIn = useLoginState();
   const [memoryCount, setMemoryCount] = useState(0);
   const [appSettings, setAppSettings] = useState<AppSettings>({});
   const [basicSettingsDraft, setBasicSettingsDraft] = useState<AppSettings>({});
@@ -761,13 +776,13 @@ export function SettingsPage() {
   const [isWorking, setIsWorking] = useState(false);
   const [isSavingBasicSettings, setIsSavingBasicSettings] = useState(false);
   const [newEntryPassword, setNewEntryPassword] = useState("");
+  const [privacyPassphrase, setPrivacyPassphrase] = useState("");
+  const [privacyStatus, setPrivacyStatus] = useState("");
+  const [privacyState, setPrivacyState] = useState(() => readPrivacyState());
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const loadMemoryCount = async () => {
-    const response = await apiFetch("/memories", { cache: "no-store" }).catch(() => null);
-    if (!response?.ok) return {};
-    const data = (await response.json().catch(() => null)) as { memories?: LocalMemoryStore } | null;
-    const memories = data?.memories ?? {};
+    const memories = await fetchDecryptedMemoryStore() ?? {};
     setMemoryCount(Object.values(memories).flat().length);
 
     return memories;
@@ -804,18 +819,62 @@ export function SettingsPage() {
         .then((texts) => setAppSettings((current) => ({ ...current, loginPhotoTexts: texts })))
         .catch(() => {});
     };
+    const handlePrivacyStateUpdate = () => setPrivacyState(readPrivacyState());
 
     window.addEventListener(loginPhotosUpdatedEvent, handleLoginPhotosUpdate);
+    window.addEventListener(privacyStateUpdatedEvent, handlePrivacyStateUpdate);
 
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener(loginPhotosUpdatedEvent, handleLoginPhotosUpdate);
+      window.removeEventListener(privacyStateUpdatedEvent, handlePrivacyStateUpdate);
     };
   }, []);
 
+  const refreshPrivacyState = () => setPrivacyState(readPrivacyState());
+
+  const enableOrUnlockPrivacy = async () => {
+    if (!isLoggedIn) {
+      setPrivacyStatus("请先登录后再启用或解锁隐私密钥。");
+      return;
+    }
+    try {
+      if (privacyState.enabled) {
+        await unlockPrivacyKey(privacyPassphrase);
+        setPrivacyStatus("隐私密钥已解锁，本设备会在本次会话中解密和加密私密文本。");
+      } else {
+        await enablePrivacyKey(privacyPassphrase);
+        setPrivacyStatus("端到端加密已启用。之后保存的文字类私密内容会先在本机加密再上传。");
+      }
+      setPrivacyPassphrase("");
+      const nextSettings = await syncAppSettings().catch(() => null);
+      if (nextSettings) {
+        setAppSettings(nextSettings);
+        setBasicSettingsDraft(nextSettings);
+      }
+      await loadMemoryCount();
+      refreshPrivacyState();
+    } catch (error) {
+      setPrivacyStatus(error instanceof Error ? error.message : "隐私密钥操作失败，请重试。");
+    }
+  };
+
+  const lockPrivacy = () => {
+    lockPrivacyKey();
+    refreshPrivacyState();
+    setPrivacyStatus("隐私密钥已从本次会话锁定。");
+  };
+
+  const resetPrivacy = () => {
+    resetPrivacyKeyForThisDevice();
+    refreshPrivacyState();
+    setPrivacyPassphrase("");
+    setPrivacyStatus("已清除此设备上的隐私密钥校验记录；服务器上的既有密文不会被解密或删除。");
+  };
+
   const updateLoginPhoto = async (slotId: string, event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setStatus("请先登录后再保存");
       event.target.value = "";
       return;
@@ -839,7 +898,7 @@ export function SettingsPage() {
   };
 
   const resetLoginPhoto = (slotId: string) => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setStatus("请先登录后再删除");
       return;
     }
@@ -853,7 +912,7 @@ export function SettingsPage() {
   };
 
   const updateLoginPhotoText = (slotId: string, field: keyof LoginPhotoText, value: string) => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setStatus("请先登录后再编辑");
       return;
     }
@@ -877,7 +936,7 @@ export function SettingsPage() {
   };
 
   const resetLoginPhotoText = (slotId: string) => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setStatus("请先登录后再删除");
       return;
     }
@@ -896,7 +955,7 @@ export function SettingsPage() {
   const weatherCityIds = basicSettingsDraft.weatherCityIds ?? defaultWeatherCityIds;
 
   const updateBasicSetting = (patch: Partial<AppSettings>) => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setStatus("请先登录后再编辑");
       return;
     }
@@ -907,7 +966,7 @@ export function SettingsPage() {
   };
 
   const saveBasicSettings = async () => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setStatus("请先登录后再保存");
       return;
     }
@@ -947,7 +1006,7 @@ export function SettingsPage() {
 
   const updateCoupleLogo = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setStatus("请先登录后再编辑");
       event.target.value = "";
       return;
@@ -970,7 +1029,7 @@ export function SettingsPage() {
   };
 
   const resetCoupleLogo = () => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setStatus("请先登录后再编辑");
       return;
     }
@@ -979,7 +1038,7 @@ export function SettingsPage() {
   };
 
   const savePassword = async (value: string) => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setStatus("请先登录后再修改密码");
       return;
     }
@@ -1011,7 +1070,7 @@ export function SettingsPage() {
   };
 
   const exportLocalData = async () => {
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setStatus("请先登录后再导出");
       return;
     }
@@ -1029,7 +1088,7 @@ export function SettingsPage() {
       exportedAt: new Date().toISOString(),
       memories,
       cityAssets: assetData?.assets ?? {},
-      auxiliary: auxiliaryData?.items ?? [],
+      auxiliary: await decryptAuxiliaryItems(auxiliaryData?.items ?? []),
       settings: {
         ...readAppSettings(),
         loginPhotos: await readLoginPhotos(),
@@ -1050,7 +1109,7 @@ export function SettingsPage() {
 
   const importLocalData = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!isAdmin) {
+    if (!isLoggedIn) {
       setStatus("请先登录后再导入");
       if (importInputRef.current) importInputRef.current.value = "";
       return;
@@ -1127,7 +1186,7 @@ export function SettingsPage() {
         <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] sm:p-5 md:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              {isAdmin ? (
+              {isLoggedIn ? (
                 <ShieldCheck className="h-6 w-6 text-[#A8C8DC]" />
               ) : (
                 <ShieldOff className="h-6 w-6 text-[#E8B8C2]" />
@@ -1135,12 +1194,12 @@ export function SettingsPage() {
               <div>
                 <p className="text-sm font-semibold text-[#5A6670]">登录状态</p>
                 <p className="mt-1 text-xs text-[#5A6670]/52">
-                  {isAdmin ? "已登录，可以保存、删除和导入数据。" : "未登录，设置改动和删除操作会被锁定。"}
+                  {isLoggedIn ? "已登录，可以保存、删除和导入数据。" : "未登录，设置改动和删除操作会被锁定。"}
                 </p>
               </div>
             </div>
 
-            {isAdmin ? (
+            {isLoggedIn ? (
               <button
                 className="rounded-[7px] border border-[#D8DDD8] px-4 py-2 text-sm font-semibold text-[#5A6670]/64 transition hover:bg-white/60"
                 type="button"
@@ -1154,6 +1213,65 @@ export function SettingsPage() {
               <p className="text-sm font-semibold text-[#D86F82]">请从首页输入密码登录后再编辑。</p>
             )}
           </div>
+        </div>
+
+        <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] sm:p-5 md:col-span-2">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              {privacyState.unlocked ? (
+                <Unlock className="mt-0.5 h-6 w-6 text-[#A8C8DC]" />
+              ) : (
+                <Lock className="mt-0.5 h-6 w-6 text-[#E8B8C2]" />
+              )}
+              <div>
+                <p className="text-sm font-semibold text-[#5A6670]">端到端加密</p>
+                <p className="mt-2 text-sm leading-6 text-[#5A6670]/62">
+                  隐私密钥只保存在本设备会话中，服务器不会收到密钥。启用后，新保存的回忆文字、标签、设置文字、纪念日/收藏备注和手动保存的攻略文本会先加密再上传。
+                </p>
+                <p className="mt-2 text-xs leading-5 text-[#D86F82]/78">
+                  照片文件和 AI 请求暂不做全量端到端加密：AI 润色/生成需要你主动把当前明文发送给后端和 AstrBot。
+                </p>
+              </div>
+            </div>
+            <span className="rounded-full border border-[#D8DDD8] bg-white/50 px-3 py-1 text-xs font-semibold text-[#5A6670]/62">
+              {!privacyState.supported ? "当前环境不支持" : privacyState.unlocked ? "已解锁" : privacyState.enabled ? "已启用，未解锁" : "未启用"}
+            </span>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <input
+              className="min-h-10 min-w-[220px] flex-1 rounded-[7px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/70 px-3 text-sm text-[#5A6670] outline-none transition focus:border-[#A8C8DC] focus:bg-white disabled:opacity-50"
+              value={privacyPassphrase}
+              onChange={(event) => setPrivacyPassphrase(event.target.value)}
+              type="password"
+              placeholder={privacyState.enabled ? "输入隐私密钥解锁" : "设置至少 8 位隐私密钥"}
+              disabled={!isLoggedIn || !privacyState.supported}
+            />
+            <button
+              className="rounded-[7px] bg-[#273846] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#D86F82] disabled:opacity-50"
+              type="button"
+              onClick={() => void enableOrUnlockPrivacy()}
+              disabled={!isLoggedIn || !privacyState.supported || privacyPassphrase.trim().length < 8}
+            >
+              {privacyState.enabled ? "解锁" : "启用加密"}
+            </button>
+            <button
+              className="rounded-[7px] border border-[#D8DDD8] px-4 py-2 text-sm font-semibold text-[#5A6670]/64 transition hover:bg-white/60 disabled:opacity-50"
+              type="button"
+              onClick={lockPrivacy}
+              disabled={!privacyState.unlocked}
+            >
+              锁定
+            </button>
+            <button
+              className="rounded-[7px] border border-[#F5DCE0] px-4 py-2 text-sm font-semibold text-[#D86F82] transition hover:bg-[#F5DCE0]/42 disabled:opacity-50"
+              type="button"
+              onClick={resetPrivacy}
+              disabled={!privacyState.enabled}
+            >
+              清除此设备密钥
+            </button>
+          </div>
+          {privacyStatus ? <p className="mt-3 text-xs font-semibold text-[#D86F82]">{privacyStatus}</p> : null}
         </div>
 
         <div className="rounded-[8px] border border-[#D8DDD8]/78 bg-[#FAFBF7]/76 p-4 shadow-[0_12px_28px_rgba(90,102,112,0.06)] sm:p-5 md:col-span-2">
@@ -1174,13 +1292,13 @@ export function SettingsPage() {
                   onChange={(event) => setNewEntryPassword(event.target.value.replace(/\D/g, "").slice(0, 8))}
                   inputMode="numeric"
                   placeholder="如 1223"
-                  disabled={!isAdmin}
+                  disabled={!isLoggedIn}
                 />
                 <button
                   type="button"
                   className="shrink-0 rounded-[7px] bg-[#F5DCE0] px-4 py-2 text-sm font-semibold text-[#E8B8C2] transition hover:bg-[#E8B8C2] hover:text-[#FAFBF7] disabled:opacity-50"
                   onClick={() => void savePassword(newEntryPassword)}
-                  disabled={!isAdmin || isWorking}
+                  disabled={!isLoggedIn || isWorking}
                 >
                   保存
                 </button>
@@ -1188,7 +1306,7 @@ export function SettingsPage() {
             </div>
 
             <p className="rounded-[7px] border border-[#D8DDD8]/70 bg-white/38 px-3 py-3 text-sm leading-6 text-[#5A6670]/60">
-              登录后即可保存和删除内容，不再区分管理员权限。
+              登录后即可保存和删除内容，这是你们两个人的私密空间。
             </p>
           </div>
         </div>
@@ -1209,7 +1327,7 @@ export function SettingsPage() {
                 value={anniversaryLabel}
                 placeholder={defaultAnniversaryLabel}
                 onChange={(event) => updateBasicSetting({ anniversaryLabel: event.target.value })}
-                disabled={!isAdmin}
+                disabled={!isLoggedIn}
               />
             </label>
             <label className="grid gap-1">
@@ -1220,7 +1338,7 @@ export function SettingsPage() {
                 placeholder={defaultAnniversaryDate}
                 type="date"
                 onChange={(event) => updateBasicSetting({ anniversaryDate: inputDateToDotDate(event.target.value) })}
-                disabled={!isAdmin}
+                disabled={!isLoggedIn}
               />
             </label>
           </div>
@@ -1234,7 +1352,7 @@ export function SettingsPage() {
                   className="min-h-10 rounded-[7px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/70 px-3 text-sm text-[#5A6670] outline-none transition focus:border-[#A8C8DC] focus:bg-white"
                   value={weatherCityIds[index] ?? ""}
                   onChange={(event) => updateWeatherCity(index, event.target.value)}
-                  disabled={!isAdmin}
+                  disabled={!isLoggedIn}
                 >
                   {cities.map((city) => (
                     <option key={city.id} value={city.id}>
@@ -1254,7 +1372,7 @@ export function SettingsPage() {
               className="inline-flex min-h-11 items-center rounded-[8px] bg-[#273846] px-4 text-sm font-semibold text-white transition hover:bg-[#D86F82] disabled:opacity-50"
               type="button"
               onClick={() => void saveBasicSettings()}
-              disabled={!isAdmin || isSavingBasicSettings}
+              disabled={!isLoggedIn || isSavingBasicSettings}
             >
               {isSavingBasicSettings ? "保存中" : "保存基础设置"}
             </button>
@@ -1288,7 +1406,7 @@ export function SettingsPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <label
                   className={`cursor-pointer rounded-[7px] border border-[#D8DDD8] px-4 py-2 text-sm font-semibold text-[#5A6670]/72 transition hover:bg-white/60 ${
-                    isAdmin ? "" : "pointer-events-none opacity-50"
+                    isLoggedIn ? "" : "pointer-events-none opacity-50"
                   }`}
                 >
                   上传图片
@@ -1297,14 +1415,14 @@ export function SettingsPage() {
                     accept="image/*"
                     className="hidden"
                     onChange={updateCoupleLogo}
-                    disabled={!isAdmin}
+                    disabled={!isLoggedIn}
                   />
                 </label>
                 <button
                   type="button"
                   className="rounded-[7px] border border-[#D8DDD8] px-4 py-2 text-sm font-semibold text-[#5A6670]/64 transition hover:bg-white/60 disabled:opacity-50"
                   onClick={resetCoupleLogo}
-                  disabled={!isAdmin}
+                  disabled={!isLoggedIn}
                 >
                   恢复默认
                 </button>
@@ -1355,7 +1473,7 @@ export function SettingsPage() {
                         className="min-h-10 rounded-[7px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/70 px-3 text-sm font-semibold text-[#5A6670] outline-none transition focus:border-[#A8C8DC] focus:bg-white"
                         value={titleValue}
                         onChange={(event) => updateLoginPhotoText(slot.id, "city", event.target.value)}
-                        disabled={!isAdmin}
+                        disabled={!isLoggedIn}
                       />
                     </label>
                     <label className="grid gap-1">
@@ -1364,7 +1482,7 @@ export function SettingsPage() {
                         className="min-h-10 rounded-[7px] border border-[#D8DDD8]/80 bg-[#FAFBF7]/70 px-3 text-sm text-[#5A6670] outline-none transition focus:border-[#A8C8DC] focus:bg-white"
                         value={labelValue}
                         onChange={(event) => updateLoginPhotoText(slot.id, "label", event.target.value)}
-                        disabled={!isAdmin}
+                        disabled={!isLoggedIn}
                       />
                     </label>
                   </div>
@@ -1375,7 +1493,7 @@ export function SettingsPage() {
                     <div className="flex shrink-0 gap-2">
                       <label
                         className={`grid h-9 w-9 place-items-center rounded-[7px] border border-[#A8C8DC] text-[#A8C8DC] transition hover:bg-[#D6E8F0]/36 ${
-                          isWorking || !isAdmin ? "pointer-events-none opacity-45" : ""
+                          isWorking || !isLoggedIn ? "pointer-events-none opacity-45" : ""
                         }`}
                         title={`更换${slot.city}登录照片`}
                       >
@@ -1385,14 +1503,14 @@ export function SettingsPage() {
                           type="file"
                           accept="image/*"
                           onChange={(event) => updateLoginPhoto(slot.id, event)}
-                          disabled={isWorking || !isAdmin}
+                          disabled={isWorking || !isLoggedIn}
                         />
                       </label>
                       <button
                         className="grid h-9 w-9 place-items-center rounded-[7px] border border-[#D8DDD8] text-[#5A6670]/58 transition hover:bg-white/68 disabled:opacity-35"
                         type="button"
                         onClick={() => resetLoginPhoto(slot.id)}
-                        disabled={isWorking || !isAdmin || !customPhoto}
+                        disabled={isWorking || !isLoggedIn || !customPhoto}
                         title={`恢复${slot.city}默认照片`}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -1401,7 +1519,7 @@ export function SettingsPage() {
                         className="rounded-[7px] border border-[#D8DDD8] px-3 text-xs font-semibold text-[#5A6670]/58 transition hover:bg-white/68 disabled:opacity-35"
                         type="button"
                         onClick={() => resetLoginPhotoText(slot.id)}
-                        disabled={isWorking || !isAdmin || !customText}
+                        disabled={isWorking || !isLoggedIn || !customText}
                       >
                         文字
                       </button>
@@ -1426,7 +1544,7 @@ export function SettingsPage() {
             className="mt-4 flex items-center gap-2 rounded-[7px] border border-[#A8C8DC] px-4 py-2 text-sm font-semibold text-[#A8C8DC] transition hover:bg-[#D6E8F0]/36"
             type="button"
             onClick={exportLocalData}
-            disabled={isWorking || !isAdmin}
+            disabled={isWorking || !isLoggedIn}
           >
             <Download className="h-4 w-4" />
             导出备份
@@ -1443,13 +1561,13 @@ export function SettingsPage() {
             type="file"
             accept="application/json,.json"
             onChange={importLocalData}
-            disabled={!isAdmin}
+            disabled={!isLoggedIn}
           />
           <button
             className="mt-4 flex items-center gap-2 rounded-[7px] border border-[#E8B8C2] px-4 py-2 text-sm font-semibold text-[#E8B8C2] transition hover:bg-[#F5DCE0]/42 disabled:opacity-45"
             type="button"
             onClick={() => importInputRef.current?.click()}
-            disabled={isWorking || !isAdmin}
+            disabled={isWorking || !isLoggedIn}
           >
             <Upload className="h-4 w-4" />
             导入备份
